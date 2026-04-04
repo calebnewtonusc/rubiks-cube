@@ -31,8 +31,12 @@ const KEY_HINTS = [
   { key: "Drag bg", label: "Orbit" },
 ];
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type TwistyPlayerInstance = any;
+
 export default function RubiksCubeApp() {
-  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const playerRef = useRef<TwistyPlayerInstance>(null);
   const [moveCount, setMoveCount] = useState(0);
   const [isReady, setIsReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -45,59 +49,97 @@ export default function RubiksCubeApp() {
     hintTimer.current = setTimeout(() => setHint(null), 1000);
   }, []);
 
-  const sendToIframe = useCallback((msg: Record<string, unknown>) => {
-    iframeRef.current?.contentWindow?.postMessage(msg, "*");
+  // Mount TwistyPlayer from the npm package — no CDN loading, no iframe,
+  // no script injection. cubing/twisty has zero web-worker usage so it
+  // bundles cleanly without the file:// path error.
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    let cancelled = false;
+    let player: TwistyPlayerInstance = null;
+
+    (async () => {
+      try {
+        const { TwistyPlayer } = await import("cubing/twisty");
+        if (cancelled || !container.isConnected) return;
+
+        player = new TwistyPlayer({
+          puzzle: "3x3x3",
+          experimentalDragInput: "auto",
+          controlPanel: "none",
+          hintFacelets: "none",
+        });
+
+        // Explicit pixel-based sizing so TwistyPlayer's IntersectionObserver
+        // always sees intersectionRect.height > 0 on first fire.
+        player.style.cssText =
+          "position:absolute;inset:0;width:100%;height:100%;min-height:400px;display:block;cursor:grab;";
+
+        container.appendChild(player);
+        playerRef.current = player;
+        setIsReady(true);
+      } catch (e) {
+        setError(String(e));
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      player?.remove();
+      playerRef.current = null;
+      if (!cancelled) setIsReady(false);
+    };
   }, []);
 
-  // Listen for messages from the cube iframe
-  useEffect(() => {
-    const onMessage = (e: MessageEvent) => {
-      const { type } = e.data ?? {};
-      if (type === "cubeReady") {
-        setIsReady(true);
-      } else if (type === "scrambled") {
-        setMoveCount(0);
-        flashHint("Scrambled!");
-      } else if (type === "resetDone") {
-        setMoveCount(0);
-        flashHint("Reset");
-      } else if (type === "moveDone") {
-        setMoveCount((c) => c + 1);
-        flashHint(e.data.move as string);
-      } else if (type === "error") {
-        setError(e.data.detail as string);
-      }
-    };
-    window.addEventListener("message", onMessage);
-    return () => window.removeEventListener("message", onMessage);
-  }, [flashHint]);
-
-  // Arrow keys rotate the whole cube (when iframe does not have focus)
+  // Arrow keys for whole-cube rotation
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       const move = ARROW_KEY_MAP[e.key];
-      if (!move) return;
+      if (!move || !playerRef.current) return;
       e.preventDefault();
-      sendToIframe({ type: "rotate", move });
+      playerRef.current.experimentalAddMove(move);
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [sendToIframe]);
+  }, []);
 
-  const handleScramble = useCallback(() => {
-    sendToIframe({ type: "scramble" });
-  }, [sendToIframe]);
+  const addMove = useCallback(
+    (move: string) => {
+      if (!playerRef.current) return;
+      playerRef.current.experimentalAddMove(move);
+      setMoveCount((c) => c + 1);
+      flashHint(move);
+    },
+    [flashHint],
+  );
+
+  const handleScramble = useCallback(async () => {
+    if (!playerRef.current) return;
+    try {
+      // Load scramble from CDN — webpackIgnore prevents bundling so the
+      // web-worker inside cubing/scramble resolves its own CDN-based worker URL.
+      const { randomScrambleForEvent } = await import(
+        /* webpackIgnore: true */
+        "https://cdn.cubing.net/v0/js/cubing/scramble" as string
+      );
+      const alg = (await randomScrambleForEvent("333")).toString();
+      playerRef.current.alg = alg;
+      playerRef.current.timestamp = Infinity;
+      setMoveCount(0);
+      flashHint("Scrambled!");
+    } catch {
+      setError("Scramble failed.");
+    }
+  }, [flashHint]);
 
   const handleReset = useCallback(() => {
-    sendToIframe({ type: "reset" });
-  }, [sendToIframe]);
-
-  const handleMove = useCallback(
-    (move: string) => {
-      sendToIframe({ type: "move", move });
-    },
-    [sendToIframe],
-  );
+    if (!playerRef.current) return;
+    playerRef.current.alg = "";
+    playerRef.current.timestamp = Infinity;
+    setMoveCount(0);
+    flashHint("Reset");
+  }, [flashHint]);
 
   return (
     <main
@@ -159,15 +201,9 @@ export default function RubiksCubeApp() {
           </div>
         )}
 
-        {/* Cube iframe — isolated HTML page, no React/webpack lifecycle issues */}
-        <iframe
-          ref={iframeRef}
-          src="/cube-iframe.html"
-          className="absolute inset-0 w-full h-full border-0"
-          style={{ background: "transparent" }}
-          title="Rubik's Cube"
-          allowTransparency
-        />
+        {/* Container for TwistyPlayer — position relative so the absolute
+            player fills it exactly */}
+        <div ref={containerRef} className="absolute inset-0" />
       </div>
 
       {/* Controls */}
@@ -200,7 +236,7 @@ export default function RubiksCubeApp() {
           {FACE_MOVES.map((move) => (
             <button
               key={move}
-              onClick={() => handleMove(move)}
+              onClick={() => addMove(move)}
               disabled={!isReady}
               className="w-12 h-9 rounded-lg text-sm font-mono font-semibold
                 bg-zinc-900 border border-zinc-800 text-zinc-300
