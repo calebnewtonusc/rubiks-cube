@@ -31,12 +31,8 @@ const KEY_HINTS = [
   { key: "Drag bg", label: "Orbit" },
 ];
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type TwistyPlayerInstance = any;
-
 export default function RubiksCubeApp() {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const playerRef = useRef<TwistyPlayerInstance>(null);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
   const [moveCount, setMoveCount] = useState(0);
   const [isReady, setIsReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -49,101 +45,63 @@ export default function RubiksCubeApp() {
     hintTimer.current = setTimeout(() => setHint(null), 1000);
   }, []);
 
-  // Mount TwistyPlayer from the npm package — no CDN loading, no iframe,
-  // no script injection. cubing/twisty has zero web-worker usage so it
-  // bundles cleanly without the file:// path error.
+  // Receive messages from the cube iframe
   useEffect(() => {
-    const container = containerRef.current;
-    if (!container) return;
-
-    let cancelled = false;
-    let player: TwistyPlayerInstance = null;
-
-    (async () => {
-      try {
-        const { TwistyPlayer } = await import("cubing/twisty");
-        if (cancelled || !container.isConnected) return;
-
-        player = new TwistyPlayer({
-          puzzle: "3x3x3",
-          experimentalDragInput: "auto",
-          controlPanel: "none",
-          hintFacelets: "none",
-        });
-
-        // Explicit pixel-based sizing so TwistyPlayer's IntersectionObserver
-        // always sees intersectionRect.height > 0 on first fire.
-        player.style.cssText =
-          "position:absolute;inset:0;width:100%;height:100%;min-height:400px;display:block;cursor:grab;";
-
-        container.appendChild(player);
-        playerRef.current = player;
+    const handleMessage = (e: MessageEvent) => {
+      const { type } = (e.data as { type?: string }) ?? {};
+      if (type === "cubeReady") {
         setIsReady(true);
-      } catch (e) {
-        setError(String(e));
+      } else if (type === "scrambled") {
+        setMoveCount(0);
+        flashHint("Scrambled!");
+      } else if (type === "resetDone") {
+        setMoveCount(0);
+        flashHint("Reset");
+      } else if (type === "moveDone") {
+        setMoveCount((c) => c + 1);
+        flashHint((e.data as { move: string }).move);
+      } else if (type === "error") {
+        setError((e.data as { detail: string }).detail ?? "Cube error");
       }
-    })();
-
-    return () => {
-      cancelled = true;
-      player?.remove();
-      playerRef.current = null;
-      if (!cancelled) setIsReady(false);
     };
-  }, []);
+    window.addEventListener("message", handleMessage);
+    return () => window.removeEventListener("message", handleMessage);
+  }, [flashHint]);
 
-  // Arrow keys for whole-cube rotation
+  // Arrow keys for whole-cube rotation — forwarded into the iframe
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       const move = ARROW_KEY_MAP[e.key];
-      if (!move || !playerRef.current) return;
+      if (!move || !iframeRef.current?.contentWindow) return;
       e.preventDefault();
-      playerRef.current.experimentalAddMove(move);
+      iframeRef.current.contentWindow.postMessage(
+        { type: "rotate", move },
+        "*",
+      );
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
-  const addMove = useCallback(
-    (move: string) => {
-      if (!playerRef.current) return;
-      playerRef.current.experimentalAddMove(move);
-      setMoveCount((c) => c + 1);
-      flashHint(move);
-    },
-    [flashHint],
-  );
+  const addMove = useCallback((move: string) => {
+    if (!iframeRef.current?.contentWindow) return;
+    iframeRef.current.contentWindow.postMessage({ type: "move", move }, "*");
+  }, []);
 
-  const handleScramble = useCallback(async () => {
-    if (!playerRef.current) return;
-    try {
-      // Load scramble from CDN — webpackIgnore prevents bundling so the
-      // web-worker inside cubing/scramble resolves its own CDN-based worker URL.
-      const { randomScrambleForEvent } = await import(
-        /* webpackIgnore: true */
-        "https://cdn.cubing.net/v0/js/cubing/scramble" as string
-      );
-      const alg = (await randomScrambleForEvent("333")).toString();
-      playerRef.current.alg = alg;
-      playerRef.current.timestamp = Infinity;
-      setMoveCount(0);
-      flashHint("Scrambled!");
-    } catch {
-      setError("Scramble failed.");
-    }
+  const handleScramble = useCallback(() => {
+    if (!iframeRef.current?.contentWindow) return;
+    iframeRef.current.contentWindow.postMessage({ type: "scramble" }, "*");
+    flashHint("Scrambling...");
   }, [flashHint]);
 
   const handleReset = useCallback(() => {
-    if (!playerRef.current) return;
-    playerRef.current.alg = "";
-    playerRef.current.timestamp = Infinity;
-    setMoveCount(0);
-    flashHint("Reset");
-  }, [flashHint]);
+    if (!iframeRef.current?.contentWindow) return;
+    iframeRef.current.contentWindow.postMessage({ type: "reset" }, "*");
+  }, []);
 
   return (
     <main
-      className="flex flex-col select-none overflow-hidden"
+      className="flex flex-col select-none"
       style={{
         height: "100dvh",
         background:
@@ -169,7 +127,7 @@ export default function RubiksCubeApp() {
       </header>
 
       {/* Cube viewport */}
-      <div className="flex-1 relative min-h-0">
+      <div className="flex-1 relative" style={{ minHeight: 0 }}>
         {!isReady && !error && (
           <div className="absolute inset-0 flex items-center justify-center z-10 pointer-events-none">
             <div className="flex flex-col items-center gap-3">
@@ -201,9 +159,14 @@ export default function RubiksCubeApp() {
           </div>
         )}
 
-        {/* Container for TwistyPlayer — position relative so the absolute
-            player fills it exactly */}
-        <div ref={containerRef} className="absolute inset-0" />
+        {/* Iframe hosts the TwistyPlayer from CDN — completely isolated from webpack */}
+        <iframe
+          ref={iframeRef}
+          src="/cube-iframe.html"
+          className="absolute inset-0 w-full h-full"
+          style={{ border: "none" }}
+          title="Rubik's Cube"
+        />
       </div>
 
       {/* Controls */}
