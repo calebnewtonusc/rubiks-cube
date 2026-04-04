@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Rubik's Cube</title>
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    html, body {
+      width: 100%; height: 100%;
+      background: #09090b;
+      overflow: hidden;
+      -webkit-font-smoothing: antialiased;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    }
+
+    /*
+      CRITICAL: position:fixed + inset:0 means this element fills the iframe viewport
+      directly. IntersectionObserver (root:null = iframe viewport) will always see
+      intersectionRect.height = iframe height > 0, so TwistyPlayer's 3D scene
+      initialization is guaranteed to fire.
+    */
+    twisty-player {
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 0;
+      cursor: grab;
+      background: radial-gradient(ellipse at 50% 0%, rgba(99,102,241,0.10) 0%, #09090b 60%);
+    }
+
+    /* Loading overlay */
+    #loading {
+      position: fixed; inset: 0; z-index: 5;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 12px;
+      background: #09090b;
+      transition: opacity 0.3s ease;
+    }
+    #loading.fade { opacity: 0; pointer-events: none; }
+    #loading.gone { display: none; }
+    .spinner {
+      width: 28px; height: 28px;
+      border: 2px solid #3f3f46;
+      border-top-color: #6366f1;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+    }
+    #loading p { font-size: 12px; color: #71717a; }
+
+    /* Hint toast */
+    #hint-toast {
+      position: fixed; top: 68px; left: 50%; transform: translateX(-50%);
+      z-index: 30;
+      padding: 6px 16px; border-radius: 999px;
+      background: rgba(24,24,27,0.92); border: 1px solid #3f3f46;
+      backdrop-filter: blur(8px);
+      color: white; font-family: ui-monospace, 'Cascadia Code', Menlo, monospace;
+      font-size: 12px; font-weight: 600; letter-spacing: 0.05em;
+      white-space: nowrap; pointer-events: none;
+      opacity: 0; transition: opacity 0.12s ease;
+    }
+    #hint-toast.show { opacity: 1; }
+
+    /* UI overlay — pointer-events none so cube drag still works */
+    #ui {
+      position: fixed; inset: 0; z-index: 20;
+      pointer-events: none;
+      display: flex; flex-direction: column;
+      color: white;
+    }
+
+    /* Header */
+    #header {
+      pointer-events: auto;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 20px 20px 10px;
+      background: linear-gradient(to bottom, rgba(9,9,11,0.75) 0%, transparent 100%);
+      flex-shrink: 0;
+    }
+
+    .title { font-size: 18px; font-weight: 700; letter-spacing: -0.02em; color: white; line-height: 1.2; }
+    .subtitle { font-size: 12px; color: #71717a; margin-top: 2px; }
+
+    .move-pill {
+      display: flex; align-items: center; gap: 6px;
+      padding: 6px 12px; border-radius: 12px;
+      background: rgba(24,24,27,0.85); border: 1px solid #27272a;
+      backdrop-filter: blur(8px);
+    }
+    .move-label { font-size: 12px; font-weight: 500; color: #71717a; }
+    #move-count {
+      font-size: 14px; font-weight: 700;
+      font-family: ui-monospace, monospace;
+      min-width: 20px; text-align: center;
+    }
+
+    /* Spacer — cube shows through here */
+    #spacer { flex: 1; }
+
+    /* Controls panel at bottom */
+    #controls {
+      pointer-events: auto;
+      padding: 10px 16px 24px;
+      display: flex; flex-direction: column; gap: 10px;
+      background: linear-gradient(to top, rgba(9,9,11,0.94) 55%, transparent 100%);
+    }
+
+    .action-row { display: flex; gap: 8px; justify-content: center; }
+
+    .btn-scramble, .btn-reset {
+      padding: 9px 26px; border-radius: 12px;
+      font-size: 14px; font-weight: 600;
+      border: none; cursor: pointer;
+      transition: all 0.15s; font-family: inherit;
+    }
+    .btn-scramble {
+      background: #4f46e5; color: white;
+      box-shadow: 0 4px 14px rgba(99,102,241,0.3);
+    }
+    .btn-scramble:hover:not(:disabled) { background: #4338ca; }
+    .btn-scramble:active:not(:disabled) { background: #3730a3; }
+    .btn-reset {
+      background: #27272a; color: #f4f4f5;
+      border: 1px solid #3f3f46;
+    }
+    .btn-reset:hover:not(:disabled) { background: #3f3f46; }
+    .btn-scramble:disabled, .btn-reset:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    #move-btns {
+      display: flex; flex-wrap: wrap; gap: 6px;
+      justify-content: center; max-width: 336px; margin: 0 auto;
+    }
+
+    .move-btn {
+      width: 48px; height: 36px; border-radius: 8px;
+      font-size: 13px; font-family: ui-monospace, monospace; font-weight: 600;
+      background: rgba(24,24,27,0.82); border: 1px solid #27272a; color: #d4d4d8;
+      cursor: pointer; transition: all 0.1s; backdrop-filter: blur(4px);
+    }
+    .move-btn:hover:not(:disabled) { background: rgba(39,39,42,0.9); border-color: #3f3f46; color: white; }
+    .move-btn:active:not(:disabled) { transform: scale(0.95); }
+    .move-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    .key-hints {
+      display: flex; align-items: center; justify-content: center;
+      gap: 14px; flex-wrap: wrap;
+    }
+    .key-hint { display: flex; align-items: center; gap: 5px; }
+    kbd {
+      padding: 2px 7px; border-radius: 6px;
+      font-family: ui-monospace, monospace; font-size: 11px;
+      background: rgba(24,24,27,0.8); border: 1px solid #27272a; color: #a1a1aa;
+    }
+    .key-hint span { font-size: 12px; color: #52525b; }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+
+  <!--
+    twisty-player is declared IN HTML so it exists in the DOM with its CSS dimensions
+    (position:fixed; width:100%; height:100%) BEFORE the module script runs.
+    When customElements.define("twisty-player", TwistyPlayer) is called by the CDN
+    module, the browser upgrades this element in-place and calls connectedCallback.
+    At that moment IntersectionObserver fires, sees intersectionRect.height = viewport
+    height > 0, and initializes the Three.js scene immediately.
+  -->
+  <twisty-player
+    puzzle="3x3x3"
+    visualization="3D"
+    experimental-drag-input="auto"
+    control-panel="none"
+    hint-facelets="none"
+  ></twisty-player>
+
+  <div id="loading">
+    <div class="spinner"></div>
+    <p>Loading cube...</p>
+  </div>
+
+  <div id="hint-toast"></div>
+
+  <div id="ui">
+    <div id="header">
+      <div>
+        <div class="title">Rubik's Cube</div>
+        <div class="subtitle">Drag a face to rotate. Drag background to orbit.</div>
+      </div>
+      <div class="move-pill">
+        <span class="move-label">Moves</span>
+        <span id="move-count">0</span>
+      </div>
+    </div>
+    <div id="spacer"></div>
+    <div id="controls">
+      <div class="action-row">
+        <button class="btn-scramble" id="btn-scramble" disabled onclick="handleScramble()">Scramble</button>
+        <button class="btn-reset" id="btn-reset" disabled onclick="handleReset()">Reset</button>
+      </div>
+      <div id="move-btns"></div>
+      <div class="key-hints">
+        <div class="key-hint"><kbd>↑ ↓</kbd><span>Tilt</span></div>
+        <div class="key-hint"><kbd>← →</kbd><span>Spin</span></div>
+        <div class="key-hint"><kbd>Drag face</kbd><span>Rotate layer</span></div>
+        <div class="key-hint"><kbd>Drag bg</kbd><span>Orbit</span></div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    import { TwistyPlayer } from "https://cdn.cubing.net/v0/js/cubing/twisty";
+    import { randomScrambleForEvent } from "https://cdn.cubing.net/v0/js/cubing/scramble";
+
+    const FACE_MOVES = ["U", "U'", "R", "R'", "F", "F'", "D", "D'", "L", "L'", "B", "B'"];
+    const ARROW_MAP = { ArrowUp: "x", ArrowDown: "x'", ArrowLeft: "y'", ArrowRight: "y" };
+
+    let moveCount = 0;
+    let hintTimer = null;
+
+    // Player element was declared in HTML and is now upgraded by the import above
+    const player = document.querySelector("twisty-player");
+
+    // Build move buttons
+    const moveGrid = document.getElementById("move-btns");
+    for (const move of FACE_MOVES) {
+      const btn = document.createElement("button");
+      btn.className = "move-btn";
+      btn.textContent = move;
+      btn.disabled = true;
+      btn.addEventListener("click", () => addMove(move));
+      moveGrid.appendChild(btn);
+    }
+
+    // Enable controls once the module has loaded (player is upgraded and rendering)
+    function enableControls() {
+      const loading = document.getElementById("loading");
+      loading.classList.add("fade");
+      setTimeout(() => loading.classList.add("gone"), 300);
+      document.getElementById("btn-scramble").disabled = false;
+      document.getElementById("btn-reset").disabled = false;
+      document.querySelectorAll(".move-btn").forEach(b => { b.disabled = false; });
+    }
+
+    // The module import finishing means the custom element is registered and the player
+    // is upgraded. Wait 2 frames for layout + IntersectionObserver to fire, then enable.
+    requestAnimationFrame(() => requestAnimationFrame(enableControls));
+
+    // Notify parent window if embedded in iframe
+    try { parent.postMessage({ type: "cubeReady" }, "*"); } catch (_) {}
+
+    // Hint toast
+    function flashHint(text) {
+      const el = document.getElementById("hint-toast");
+      el.textContent = text;
+      el.classList.add("show");
+      if (hintTimer) clearTimeout(hintTimer);
+      hintTimer = setTimeout(() => el.classList.remove("show"), 900);
+    }
+
+    // Face moves
+    window.addMove = function(move) {
+      player.experimentalAddMove(move);
+      moveCount++;
+      document.getElementById("move-count").textContent = String(moveCount);
+      flashHint(move);
+    };
+
+    // Scramble
+    window.handleScramble = async function() {
+      flashHint("Scrambling...");
+      try {
+        const alg = (await randomScrambleForEvent("333")).toString();
+        player.alg = alg;
+        player.timestamp = Infinity;
+        moveCount = 0;
+        document.getElementById("move-count").textContent = "0";
+        setTimeout(() => flashHint("Scrambled!"), 80);
+      } catch (e) {
+        console.error("Scramble failed:", e);
+        flashHint("Error");
+      }
+    };
+
+    // Reset
+    window.handleReset = function() {
+      player.alg = "";
+      player.timestamp = Infinity;
+      moveCount = 0;
+      document.getElementById("move-count").textContent = "0";
+      flashHint("Reset");
+    };
+
+    // Arrow keys
+    window.addEventListener("keydown", e => {
+      const move = ARROW_MAP[e.key];
+      if (!move) return;
+      e.preventDefault();
+      player.experimentalAddMove(move);
+    });
+  </script>
+</body>
+</html>
