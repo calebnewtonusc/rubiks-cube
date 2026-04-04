@@ -37,25 +37,14 @@ const KEY_HINTS = [
   { key: "Drag bg", label: "Orbit" },
 ];
 
-// Approximate height of header + controls in px
-const CHROME_HEIGHT = 210;
-
 export default function RubiksCubeApp() {
   const containerRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<TwistyPlayerElement | null>(null);
   const [moveCount, setMoveCount] = useState(0);
   const [isReady, setIsReady] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [hint, setHint] = useState<string | null>(null);
   const hintTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [vpHeight, setVpHeight] = useState(600);
-
-  // Measure true viewport height on mount and resize
-  useEffect(() => {
-    const update = () => setVpHeight(window.innerHeight);
-    update();
-    window.addEventListener("resize", update);
-    return () => window.removeEventListener("resize", update);
-  }, []);
 
   const flashHint = useCallback((text: string) => {
     setHint(text);
@@ -74,46 +63,54 @@ export default function RubiksCubeApp() {
   );
 
   const rotateView = useCallback((move: string) => {
-    if (!playerRef.current) return;
-    playerRef.current.experimentalAddMove(move);
+    playerRef.current?.experimentalAddMove(move);
   }, []);
 
-  // Bootstrap twisty-player once container has a real size
+  // Mount twisty-player once. Container uses position:absolute so it has
+  // real pixel dimensions regardless of flex layout.
   useEffect(() => {
-    if (vpHeight === 600) return; // wait for real measurement
     let mounted = true;
 
-    import("cubing/twisty").then(({ TwistyPlayer }) => {
-      if (!mounted || !containerRef.current) return;
-      if (playerRef.current) return; // already mounted
+    import("cubing/twisty")
+      .then(({ TwistyPlayer }) => {
+        if (!mounted) return;
+        if (!containerRef.current) {
+          setError("Container not found");
+          return;
+        }
+        if (playerRef.current) return; // already mounted
 
-      const player = new TwistyPlayer({
-        puzzle: "3x3x3",
-        visualization: "PG3D",
-        experimentalDragInput: "auto",
-        controlPanel: "none",
-        background: "none",
-        hintFacelets: "none",
-      } as ConstructorParameters<typeof TwistyPlayer>[0]);
+        // Use setAttribute — most reliable way to configure the web component
+        const player = document.createElement(
+          "twisty-player",
+        ) as TwistyPlayerElement;
+        player.setAttribute("puzzle", "3x3x3");
+        player.setAttribute("visualization", "PG3D");
+        player.setAttribute("experimental-drag-input", "auto");
+        player.setAttribute("control-panel", "none");
+        player.setAttribute("background", "none");
+        player.setAttribute("hint-facelets", "none");
+        player.style.cssText =
+          "width:100%;height:100%;display:block;cursor:grab;";
 
-      Object.assign(player.style, {
-        width: "100%",
-        height: "100%",
-        display: "block",
-        cursor: "grab",
+        // TwistyPlayer must be imported to register the custom element, but
+        // we create via createElement so it picks up the registered class.
+        void TwistyPlayer; // ensure import side-effects run
+
+        containerRef.current.appendChild(player);
+        playerRef.current = player;
+        setIsReady(true);
+      })
+      .catch((err: unknown) => {
+        if (mounted) setError(String(err));
       });
-
-      containerRef.current.appendChild(player);
-      playerRef.current = player as unknown as TwistyPlayerElement;
-      setIsReady(true);
-    });
 
     return () => {
       mounted = false;
     };
-  }, [vpHeight]);
+  }, []);
 
-  // Arrow key whole-cube rotation
+  // Arrow keys → whole-cube rotation (does not increment move counter)
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       const move = ARROW_KEY_MAP[e.key];
@@ -127,12 +124,16 @@ export default function RubiksCubeApp() {
 
   const handleScramble = useCallback(async () => {
     if (!playerRef.current) return;
-    const { randomScrambleForEvent } = await import("cubing/scramble");
-    const scramble = await randomScrambleForEvent("333");
-    playerRef.current.alg = scramble.toString();
-    playerRef.current.timestamp = Infinity;
-    setMoveCount(0);
-    flashHint("Scrambled!");
+    try {
+      const { randomScrambleForEvent } = await import("cubing/scramble");
+      const scramble = await randomScrambleForEvent("333");
+      playerRef.current.alg = scramble.toString();
+      playerRef.current.timestamp = Infinity;
+      setMoveCount(0);
+      flashHint("Scrambled!");
+    } catch {
+      setError("Scramble failed. Check your connection.");
+    }
   }, [flashHint]);
 
   const handleReset = useCallback(() => {
@@ -143,13 +144,11 @@ export default function RubiksCubeApp() {
     flashHint("Reset");
   }, [flashHint]);
 
-  const cubeHeight = Math.max(vpHeight - CHROME_HEIGHT, 280);
-
   return (
     <main
-      className="overflow-hidden select-none flex flex-col"
+      className="flex flex-col select-none overflow-hidden"
       style={{
-        height: `${vpHeight}px`,
+        height: "100dvh",
         background:
           "radial-gradient(ellipse at 50% 0%, rgba(99,102,241,0.12) 0%, #09090b 55%)",
       }}
@@ -172,12 +171,11 @@ export default function RubiksCubeApp() {
         </div>
       </header>
 
-      {/* Cube viewport — explicit pixel height so the web component can size its canvas */}
-      <div
-        className="relative flex-shrink-0"
-        style={{ height: `${cubeHeight}px` }}
-      >
-        {!isReady && (
+      {/* Cube viewport — position:relative parent + position:absolute child gives
+          the web component real pixel dimensions to size its internal canvas */}
+      <div className="flex-1 relative min-h-0">
+        {/* Loading state */}
+        {!isReady && !error && (
           <div className="absolute inset-0 flex items-center justify-center z-10 pointer-events-none">
             <div className="flex flex-col items-center gap-3">
               <div className="w-7 h-7 border-2 border-zinc-700 border-t-indigo-500 rounded-full animate-spin" />
@@ -186,23 +184,36 @@ export default function RubiksCubeApp() {
           </div>
         )}
 
+        {/* Error state */}
+        {error && (
+          <div className="absolute inset-0 flex items-center justify-center z-10">
+            <div className="flex flex-col items-center gap-2 px-6 text-center">
+              <p className="text-red-400 text-sm font-medium">
+                Failed to load cube
+              </p>
+              <p className="text-zinc-500 text-xs font-mono">{error}</p>
+            </div>
+          </div>
+        )}
+
+        {/* Move hint toast */}
         {hint && (
           <div
-            className="absolute top-3 left-1/2 -translate-x-1/2 z-20
-            px-4 py-1.5 rounded-full pointer-events-none
-            bg-zinc-900/90 border border-zinc-700 backdrop-blur-sm
+            className="absolute top-3 left-1/2 -translate-x-1/2 z-20 pointer-events-none
+            px-4 py-1.5 rounded-full backdrop-blur-sm
+            bg-zinc-900/90 border border-zinc-700
             text-white text-xs font-mono font-semibold tracking-wider"
           >
             {hint}
           </div>
         )}
 
-        {/* Container div has explicit pixel height so 100% height on player works */}
-        <div ref={containerRef} style={{ width: "100%", height: "100%" }} />
+        {/* Container: absolute so it always has real pixel dimensions */}
+        <div ref={containerRef} className="absolute inset-0" />
       </div>
 
       {/* Controls */}
-      <div className="flex-1 flex flex-col justify-center px-4 pb-4 pt-1 gap-2.5">
+      <div className="flex-shrink-0 px-4 pb-5 pt-2 flex flex-col gap-2.5">
         <div className="flex gap-2 justify-center">
           <button
             onClick={handleScramble}
