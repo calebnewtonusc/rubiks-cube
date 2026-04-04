@@ -45,27 +45,34 @@ const KEY_HINTS = [
 
 // Inline script that loads cubing from CDN and mounts the player.
 // Runs outside webpack so no bundling issues.
+// IMPORTANT: getElementById is called AFTER the async CDN imports so that
+// React Strict Mode double-mount doesn't orphan the player in a detached node.
 const CUBE_SCRIPT = `
 (async () => {
   try {
-    const containerId = "twisty-container";
-    const container = document.getElementById(containerId);
-    if (!container) { console.error("twisty-container not found"); return; }
-
     const [{ TwistyPlayer }, { randomScrambleForEvent }] = await Promise.all([
       import("https://cdn.cubing.net/v0/js/cubing/twisty"),
       import("https://cdn.cubing.net/v0/js/cubing/scramble"),
     ]);
 
+    // Look up the container AFTER the async imports resolve — this ensures
+    // we get the currently-mounted DOM node, not a stale detached one.
+    const container = document.getElementById("twisty-container");
+    if (!container) {
+      window.dispatchEvent(new CustomEvent("rubik-player-error", { detail: "Container not found after CDN load" }));
+      return;
+    }
+
     const player = new TwistyPlayer({
       puzzle: "3x3x3",
-      visualization: "3D",
+      visualization: "PG3D",
       experimentalDragInput: "auto",
       controlPanel: "none",
       hintFacelets: "none",
+      background: "none",
     });
 
-    player.style.cssText = "width:100%;height:100%;display:block;cursor:grab;min-height:300px;";
+    player.style.cssText = "width:100%;height:100%;display:block;cursor:grab;";
     container.appendChild(player);
 
     window.__rubikPlayer = player;
@@ -231,11 +238,8 @@ export default function RubiksCubeApp() {
           </div>
         )}
 
-        {/* Explicit height so the twisty-player canvas always has real pixel dimensions */}
-        <div
-          id="twisty-container"
-          style={{ width: "100%", height: "100%", minHeight: "300px" }}
-        />
+        {/* Absolutely fill the relative parent so the player always has real pixel dimensions */}
+        <div id="twisty-container" style={{ position: "absolute", inset: 0 }} />
       </div>
 
       {/* Controls */}
