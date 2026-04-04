@@ -2,10 +2,15 @@
 
 import { useEffect, useRef, useCallback, useState } from "react";
 
-interface TwistyPlayerElement extends HTMLElement {
-  experimentalAddMove: (move: string) => void;
-  alg: string;
-  timestamp: number;
+// Access the player via window after the CDN module loads it
+declare global {
+  interface Window {
+    __rubikPlayer: {
+      experimentalAddMove: (move: string) => void;
+      alg: string;
+      timestamp: number;
+    } | null;
+  }
 }
 
 const FACE_MOVES = [
@@ -37,9 +42,40 @@ const KEY_HINTS = [
   { key: "Drag bg", label: "Orbit" },
 ];
 
+// Inline script that loads cubing from CDN and mounts the player.
+// Runs outside webpack so no bundling issues.
+const CUBE_SCRIPT = `
+(async () => {
+  try {
+    const containerId = "twisty-container";
+    const container = document.getElementById(containerId);
+    if (!container) { console.error("twisty-container not found"); return; }
+
+    const { TwistyPlayer } = await import("https://cdn.cubing.net/js/cubing/twisty");
+
+    const player = new TwistyPlayer({
+      puzzle: "3x3x3",
+      visualization: "PG3D",
+      experimentalDragInput: "auto",
+      controlPanel: "none",
+      background: "none",
+      hintFacelets: "none",
+    });
+
+    player.style.cssText = "width:100%;height:100%;display:block;cursor:grab;";
+    container.appendChild(player);
+
+    window.__rubikPlayer = player;
+    window.dispatchEvent(new CustomEvent("rubik-player-ready"));
+  } catch (e) {
+    window.dispatchEvent(new CustomEvent("rubik-player-error", { detail: String(e) }));
+  }
+})();
+`;
+
 export default function RubiksCubeApp() {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const playerRef = useRef<TwistyPlayerElement | null>(null);
+  const playerRef = useRef<Window["__rubikPlayer"]>(null);
+  const scriptInjected = useRef(false);
   const [moveCount, setMoveCount] = useState(0);
   const [isReady, setIsReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -66,51 +102,39 @@ export default function RubiksCubeApp() {
     playerRef.current?.experimentalAddMove(move);
   }, []);
 
-  // Mount twisty-player once. Container uses position:absolute so it has
-  // real pixel dimensions regardless of flex layout.
+  // Inject the CDN loader script once the DOM is ready
   useEffect(() => {
-    let mounted = true;
+    if (scriptInjected.current) return;
+    scriptInjected.current = true;
 
-    import("cubing/twisty")
-      .then(({ TwistyPlayer }) => {
-        if (!mounted) return;
-        if (!containerRef.current) {
-          setError("Container not found");
-          return;
-        }
-        if (playerRef.current) return; // already mounted
+    window.__rubikPlayer = null;
 
-        // Use setAttribute — most reliable way to configure the web component
-        const player = document.createElement(
-          "twisty-player",
-        ) as TwistyPlayerElement;
-        player.setAttribute("puzzle", "3x3x3");
-        player.setAttribute("visualization", "PG3D");
-        player.setAttribute("experimental-drag-input", "auto");
-        player.setAttribute("control-panel", "none");
-        player.setAttribute("background", "none");
-        player.setAttribute("hint-facelets", "none");
-        player.style.cssText =
-          "width:100%;height:100%;display:block;cursor:grab;";
-
-        // TwistyPlayer must be imported to register the custom element, but
-        // we create via createElement so it picks up the registered class.
-        void TwistyPlayer; // ensure import side-effects run
-
-        containerRef.current.appendChild(player);
-        playerRef.current = player;
+    const onReady = () => {
+      if (window.__rubikPlayer) {
+        playerRef.current = window.__rubikPlayer;
         setIsReady(true);
-      })
-      .catch((err: unknown) => {
-        if (mounted) setError(String(err));
-      });
+      }
+    };
+
+    const onError = (e: Event) => {
+      setError((e as CustomEvent).detail as string);
+    };
+
+    window.addEventListener("rubik-player-ready", onReady, { once: true });
+    window.addEventListener("rubik-player-error", onError, { once: true });
+
+    const script = document.createElement("script");
+    script.type = "module";
+    script.textContent = CUBE_SCRIPT;
+    document.body.appendChild(script);
 
     return () => {
-      mounted = false;
+      window.removeEventListener("rubik-player-ready", onReady);
+      window.removeEventListener("rubik-player-error", onError);
     };
   }, []);
 
-  // Arrow keys → whole-cube rotation (does not increment move counter)
+  // Arrow keys for whole-cube rotation
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       const move = ARROW_KEY_MAP[e.key];
@@ -132,7 +156,7 @@ export default function RubiksCubeApp() {
       setMoveCount(0);
       flashHint("Scrambled!");
     } catch {
-      setError("Scramble failed. Check your connection.");
+      setError("Scramble failed.");
     }
   }, [flashHint]);
 
@@ -171,10 +195,8 @@ export default function RubiksCubeApp() {
         </div>
       </header>
 
-      {/* Cube viewport — position:relative parent + position:absolute child gives
-          the web component real pixel dimensions to size its internal canvas */}
+      {/* Cube viewport */}
       <div className="flex-1 relative min-h-0">
-        {/* Loading state */}
         {!isReady && !error && (
           <div className="absolute inset-0 flex items-center justify-center z-10 pointer-events-none">
             <div className="flex flex-col items-center gap-3">
@@ -184,11 +206,10 @@ export default function RubiksCubeApp() {
           </div>
         )}
 
-        {/* Error state */}
         {error && (
           <div className="absolute inset-0 flex items-center justify-center z-10">
-            <div className="flex flex-col items-center gap-2 px-6 text-center">
-              <p className="text-red-400 text-sm font-medium">
+            <div className="text-center px-6">
+              <p className="text-red-400 text-sm font-medium mb-1">
                 Failed to load cube
               </p>
               <p className="text-zinc-500 text-xs font-mono">{error}</p>
@@ -196,7 +217,6 @@ export default function RubiksCubeApp() {
           </div>
         )}
 
-        {/* Move hint toast */}
         {hint && (
           <div
             className="absolute top-3 left-1/2 -translate-x-1/2 z-20 pointer-events-none
@@ -208,8 +228,8 @@ export default function RubiksCubeApp() {
           </div>
         )}
 
-        {/* Container: absolute so it always has real pixel dimensions */}
-        <div ref={containerRef} className="absolute inset-0" />
+        {/* The cube mounts here — id is used by the inline CDN script */}
+        <div id="twisty-container" className="absolute inset-0" />
       </div>
 
       {/* Controls */}
