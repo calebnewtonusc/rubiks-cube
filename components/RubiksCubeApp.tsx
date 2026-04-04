@@ -51,7 +51,7 @@ const CUBE_SCRIPT = `
     const container = document.getElementById(containerId);
     if (!container) { console.error("twisty-container not found"); return; }
 
-    const { TwistyPlayer } = await import("https://cdn.cubing.net/js/cubing/twisty");
+    const { TwistyPlayer } = await import("https://cdn.cubing.net/v0/js/cubing/twisty");
 
     const player = new TwistyPlayer({
       puzzle: "3x3x3",
