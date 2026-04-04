@@ -10,6 +10,7 @@ declare global {
       alg: string;
       timestamp: number;
     } | null;
+    __rubikScramble: (() => Promise<string>) | null;
   }
 }
 
@@ -51,7 +52,10 @@ const CUBE_SCRIPT = `
     const container = document.getElementById(containerId);
     if (!container) { console.error("twisty-container not found"); return; }
 
-    const { TwistyPlayer } = await import("https://cdn.cubing.net/v0/js/cubing/twisty");
+    const [{ TwistyPlayer }, { randomScrambleForEvent }] = await Promise.all([
+      import("https://cdn.cubing.net/v0/js/cubing/twisty"),
+      import("https://cdn.cubing.net/v0/js/cubing/scramble"),
+    ]);
 
     const player = new TwistyPlayer({
       puzzle: "3x3x3",
@@ -66,6 +70,7 @@ const CUBE_SCRIPT = `
     container.appendChild(player);
 
     window.__rubikPlayer = player;
+    window.__rubikScramble = async () => (await randomScrambleForEvent("333")).toString();
     window.dispatchEvent(new CustomEvent("rubik-player-ready"));
   } catch (e) {
     window.dispatchEvent(new CustomEvent("rubik-player-error", { detail: String(e) }));
@@ -147,11 +152,10 @@ export default function RubiksCubeApp() {
   }, [rotateView]);
 
   const handleScramble = useCallback(async () => {
-    if (!playerRef.current) return;
+    if (!playerRef.current || !window.__rubikScramble) return;
     try {
-      const { randomScrambleForEvent } = await import("cubing/scramble");
-      const scramble = await randomScrambleForEvent("333");
-      playerRef.current.alg = scramble.toString();
+      const scramble = await window.__rubikScramble();
+      playerRef.current.alg = scramble;
       playerRef.current.timestamp = Infinity;
       setMoveCount(0);
       flashHint("Scrambled!");
