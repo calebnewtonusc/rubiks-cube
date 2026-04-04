@@ -59,14 +59,13 @@ const CUBE_SCRIPT = `
 
     const player = new TwistyPlayer({
       puzzle: "3x3x3",
-      visualization: "PG3D",
+      visualization: "3D",
       experimentalDragInput: "auto",
       controlPanel: "none",
-      background: "none",
       hintFacelets: "none",
     });
 
-    player.style.cssText = "width:100%;height:100%;display:block;cursor:grab;";
+    player.style.cssText = "width:100%;height:100%;display:block;cursor:grab;min-height:300px;";
     container.appendChild(player);
 
     window.__rubikPlayer = player;
@@ -232,8 +231,11 @@ export default function RubiksCubeApp() {
           </div>
         )}
 
-        {/* The cube mounts here — id is used by the inline CDN script */}
-        <div id="twisty-container" className="absolute inset-0" />
+        {/* Explicit height so the twisty-player canvas always has real pixel dimensions */}
+        <div
+          id="twisty-container"
+          style={{ width: "100%", height: "100%", minHeight: "300px" }}
+        />
       </div>
 
       {/* Controls */}
