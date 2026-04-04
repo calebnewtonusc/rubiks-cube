@@ -65,14 +65,14 @@ const CUBE_SCRIPT = `
 
     const player = new TwistyPlayer({
       puzzle: "3x3x3",
-      visualization: "PG3D",
+      visualization: "3D",
       experimentalDragInput: "auto",
       controlPanel: "none",
       hintFacelets: "none",
       background: "none",
     });
 
-    player.style.cssText = "width:100%;height:100%;display:block;cursor:grab;";
+    player.style.cssText = "width:100%;height:100%;min-height:320px;display:block;cursor:grab;";
     container.appendChild(player);
 
     window.__rubikPlayer = player;
@@ -239,7 +239,10 @@ export default function RubiksCubeApp() {
         )}
 
         {/* Absolutely fill the relative parent so the player always has real pixel dimensions */}
-        <div id="twisty-container" style={{ position: "absolute", inset: 0 }} />
+        <div
+          id="twisty-container"
+          style={{ position: "absolute", inset: 0, minHeight: "320px" }}
+        />
       </div>
 
       {/* Controls */}
