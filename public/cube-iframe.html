@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+      width: 100%;
+      height: 100%;
+      background: transparent;
+      overflow: hidden;
+    }
+    twisty-player {
+      width: 100%;
+      height: 100vh;
+      display: block;
+    }
+  </style>
+</head>
+<body>
+  <script type="module">
+    import { TwistyPlayer } from "https://cdn.cubing.net/v0/js/cubing/twisty";
+    import { randomScrambleForEvent } from "https://cdn.cubing.net/v0/js/cubing/scramble";
+
+    const player = new TwistyPlayer({
+      puzzle: "3x3x3",
+      visualization: "3D",
+      experimentalDragInput: "auto",
+      controlPanel: "none",
+      hintFacelets: "none",
+    });
+
+    document.body.appendChild(player);
+
+    // Arrow keys for whole-cube rotation when iframe has focus
+    window.addEventListener("keydown", (e) => {
+      const map = { ArrowUp: "x", ArrowDown: "x'", ArrowLeft: "y'", ArrowRight: "y" };
+      const move = map[e.key];
+      if (!move) return;
+      e.preventDefault();
+      player.experimentalAddMove(move);
+    });
+
+    // Commands from parent window
+    window.addEventListener("message", async (e) => {
+      const { type } = e.data ?? {};
+      if (type === "scramble") {
+        try {
+          const s = await randomScrambleForEvent("333");
+          const alg = s.toString();
+          player.alg = alg;
+          player.timestamp = Infinity;
+          parent.postMessage({ type: "scrambled", alg }, "*");
+        } catch (err) {
+          parent.postMessage({ type: "error", detail: String(err) }, "*");
+        }
+      } else if (type === "reset") {
+        player.alg = "";
+        player.timestamp = Infinity;
+        parent.postMessage({ type: "resetDone" }, "*");
+      } else if (type === "move") {
+        player.experimentalAddMove(e.data.move);
+        parent.postMessage({ type: "moveDone", move: e.data.move }, "*");
+      } else if (type === "rotate") {
+        player.experimentalAddMove(e.data.move);
+      }
+    });
+
+    // Signal that the player is mounted and ready
+    parent.postMessage({ type: "cubeReady" }, "*");
+  </script>
+</body>
+</html>

@@ -2,18 +2,6 @@
 
 import { useEffect, useRef, useCallback, useState } from "react";
 
-// Access the player via window after the CDN module loads it
-declare global {
-  interface Window {
-    __rubikPlayer: {
-      experimentalAddMove: (move: string) => void;
-      alg: string;
-      timestamp: number;
-    } | null;
-    __rubikScramble: (() => Promise<string>) | null;
-  }
-}
-
 const FACE_MOVES = [
   "U",
   "U'",
@@ -43,50 +31,8 @@ const KEY_HINTS = [
   { key: "Drag bg", label: "Orbit" },
 ];
 
-// Inline script that loads cubing from CDN and mounts the player.
-// Runs outside webpack so no bundling issues.
-// IMPORTANT: getElementById is called AFTER the async CDN imports so that
-// React Strict Mode double-mount doesn't orphan the player in a detached node.
-const CUBE_SCRIPT = `
-(async () => {
-  try {
-    const [{ TwistyPlayer }, { randomScrambleForEvent }] = await Promise.all([
-      import("https://cdn.cubing.net/v0/js/cubing/twisty"),
-      import("https://cdn.cubing.net/v0/js/cubing/scramble"),
-    ]);
-
-    // Look up the container AFTER the async imports resolve — this ensures
-    // we get the currently-mounted DOM node, not a stale detached one.
-    const container = document.getElementById("twisty-container");
-    if (!container) {
-      window.dispatchEvent(new CustomEvent("rubik-player-error", { detail: "Container not found after CDN load" }));
-      return;
-    }
-
-    const player = new TwistyPlayer({
-      puzzle: "3x3x3",
-      visualization: "3D",
-      experimentalDragInput: "auto",
-      controlPanel: "none",
-      hintFacelets: "none",
-      background: "none",
-    });
-
-    player.style.cssText = "width:100%;height:100%;min-height:320px;display:block;cursor:grab;";
-    container.appendChild(player);
-
-    window.__rubikPlayer = player;
-    window.__rubikScramble = async () => (await randomScrambleForEvent("333")).toString();
-    window.dispatchEvent(new CustomEvent("rubik-player-ready"));
-  } catch (e) {
-    window.dispatchEvent(new CustomEvent("rubik-player-error", { detail: String(e) }));
-  }
-})();
-`;
-
 export default function RubiksCubeApp() {
-  const playerRef = useRef<Window["__rubikPlayer"]>(null);
-  const scriptInjected = useRef(false);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
   const [moveCount, setMoveCount] = useState(0);
   const [isReady, setIsReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -99,84 +45,59 @@ export default function RubiksCubeApp() {
     hintTimer.current = setTimeout(() => setHint(null), 1000);
   }, []);
 
-  const addMove = useCallback(
-    (move: string) => {
-      if (!playerRef.current) return;
-      playerRef.current.experimentalAddMove(move);
-      setMoveCount((c) => c + 1);
-      flashHint(move);
-    },
-    [flashHint],
-  );
-
-  const rotateView = useCallback((move: string) => {
-    playerRef.current?.experimentalAddMove(move);
+  const sendToIframe = useCallback((msg: Record<string, unknown>) => {
+    iframeRef.current?.contentWindow?.postMessage(msg, "*");
   }, []);
 
-  // Inject the CDN loader script once the DOM is ready
+  // Listen for messages from the cube iframe
   useEffect(() => {
-    if (scriptInjected.current) return;
-    scriptInjected.current = true;
-
-    window.__rubikPlayer = null;
-
-    const onReady = () => {
-      if (window.__rubikPlayer) {
-        playerRef.current = window.__rubikPlayer;
+    const onMessage = (e: MessageEvent) => {
+      const { type } = e.data ?? {};
+      if (type === "cubeReady") {
         setIsReady(true);
+      } else if (type === "scrambled") {
+        setMoveCount(0);
+        flashHint("Scrambled!");
+      } else if (type === "resetDone") {
+        setMoveCount(0);
+        flashHint("Reset");
+      } else if (type === "moveDone") {
+        setMoveCount((c) => c + 1);
+        flashHint(e.data.move as string);
+      } else if (type === "error") {
+        setError(e.data.detail as string);
       }
     };
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, [flashHint]);
 
-    const onError = (e: Event) => {
-      setError((e as CustomEvent).detail as string);
-    };
-
-    window.addEventListener("rubik-player-ready", onReady, { once: true });
-    window.addEventListener("rubik-player-error", onError, { once: true });
-
-    const script = document.createElement("script");
-    script.type = "module";
-    script.textContent = CUBE_SCRIPT;
-    document.body.appendChild(script);
-
-    return () => {
-      window.removeEventListener("rubik-player-ready", onReady);
-      window.removeEventListener("rubik-player-error", onError);
-    };
-  }, []);
-
-  // Arrow keys for whole-cube rotation
+  // Arrow keys rotate the whole cube (when iframe does not have focus)
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       const move = ARROW_KEY_MAP[e.key];
       if (!move) return;
       e.preventDefault();
-      rotateView(move);
+      sendToIframe({ type: "rotate", move });
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [rotateView]);
+  }, [sendToIframe]);
 
-  const handleScramble = useCallback(async () => {
-    if (!playerRef.current || !window.__rubikScramble) return;
-    try {
-      const scramble = await window.__rubikScramble();
-      playerRef.current.alg = scramble;
-      playerRef.current.timestamp = Infinity;
-      setMoveCount(0);
-      flashHint("Scrambled!");
-    } catch {
-      setError("Scramble failed.");
-    }
-  }, [flashHint]);
+  const handleScramble = useCallback(() => {
+    sendToIframe({ type: "scramble" });
+  }, [sendToIframe]);
 
   const handleReset = useCallback(() => {
-    if (!playerRef.current) return;
-    playerRef.current.alg = "";
-    playerRef.current.timestamp = Infinity;
-    setMoveCount(0);
-    flashHint("Reset");
-  }, [flashHint]);
+    sendToIframe({ type: "reset" });
+  }, [sendToIframe]);
+
+  const handleMove = useCallback(
+    (move: string) => {
+      sendToIframe({ type: "move", move });
+    },
+    [sendToIframe],
+  );
 
   return (
     <main
@@ -238,10 +159,14 @@ export default function RubiksCubeApp() {
           </div>
         )}
 
-        {/* Absolutely fill the relative parent so the player always has real pixel dimensions */}
-        <div
-          id="twisty-container"
-          style={{ position: "absolute", inset: 0, minHeight: "320px" }}
+        {/* Cube iframe — isolated HTML page, no React/webpack lifecycle issues */}
+        <iframe
+          ref={iframeRef}
+          src="/cube-iframe.html"
+          className="absolute inset-0 w-full h-full border-0"
+          style={{ background: "transparent" }}
+          title="Rubik's Cube"
+          allowTransparency
         />
       </div>
 
@@ -275,7 +200,7 @@ export default function RubiksCubeApp() {
           {FACE_MOVES.map((move) => (
             <button
               key={move}
-              onClick={() => addMove(move)}
+              onClick={() => handleMove(move)}
               disabled={!isReady}
               className="w-12 h-9 rounded-lg text-sm font-mono font-semibold
                 bg-zinc-900 border border-zinc-800 text-zinc-300
