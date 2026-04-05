@@ -1,121 +1,74 @@
 # Rubik's Cube
 
-An interactive 3D Rubik's cube for Selah. Drag to orbit, rotate layers with face buttons, scramble, solve, watch it teach you famous patterns step by step, and optionally detonate the entire screen.
+Built this for my little sister Selah. It is a fully interactive 3D Rubik's cube with a Kociemba two-phase solver, step-by-step pattern tutorials, a speedcubing timer, and a CHAOS mode that shakes the entire screen, flashes red, and detonates confetti from all five points simultaneously. Because why not.
 
-Built with [cubing.js](https://js.cubing.net/) and [canvas-confetti](https://github.com/catdad/canvas-confetti). Deployed on Vercel.
-
----
-
-## Features
-
-### The Basics
-
-- **3D Rubik's Cube:** rendered in WebGL via TwistyPlayer
-- **Orbit:** drag the background to spin the cube in any direction
-- **Arrow keys:** rotate the whole cube (up/down/left/right)
-- **Face move buttons:** U, U', R, R', F, F', D, D', L, L', B, B' (plus M, E, S slice moves)
-
-### Scramble and Solve
-
-- **Scramble:** generates a WCA-legal random state scramble (the kind used in official speedcubing competitions). Fires confetti on scramble.
-- **Solve:** runs the Kociemba two-phase algorithm, the same algorithm that finds God's Number solutions (20 moves or fewer). Shows the full move sequence with step-by-step playback. Each chip highlights as you play through it.
-- **Reset:** snap back to solved state instantly
-
-### Famous Patterns (Step-by-Step)
-
-Clicking a pattern does not instantly teleport the cube. It resets to solved and shows you the exact move sequence in a slide-up panel so you can watch it build, step by step:
-
-| Pattern      | Algorithm length | Description                                                |
-| ------------ | ---------------- | ---------------------------------------------------------- |
-| Checkerboard | 3 moves          | The classic. Two colors alternating on every face.         |
-| 6 Dots       | 8 moves          | A single pip on each face, like dice at maximum confusion. |
-| Inception    | 15 moves         | A cube inside a cube. Your eyes aren't broken.             |
-| Cube Cubed   | 18 moves         | A cube inside a cube inside a cube. Philosophy.            |
-| Stripes      | 8 moves          | Six-color stripe wrapping around the whole cube.           |
-| Tetris       | 8 moves          | L-shaped pieces on each face. You can't clear these lines. |
-| Python       | 10 moves         | Diagonal color bands.                                      |
-| Gift Box     | 8 moves          | All wrapped up. You're welcome.                            |
-
-Hit **Play Pattern** to watch it execute move by move. Each chip in the sequence highlights as it's applied.
-
-### CHAOS Mode
-
-Press the CHAOS button. The following happens simultaneously:
-
-- The entire screen shakes
-- The screen flashes red three times
-- Confetti explodes from all five points (center, all four corners)
-- The cube executes 50 rapid-fire random moves over ~1.1 seconds
-- The screen shakes again at move 12, 28, and 42
-- A final triple-burst explosion fires at the end
-- A random message appears, chosen from a rotating list of increasingly unhinged statements
-
-This is not subtle. That is the point.
-
-### Timer
-
-Click the timer pill or press **Space** to start/stop. Useful for speedcubing or self-punishment.
-
-### Move Counter and Milestones
-
-The counter tracks every move. At specific counts, you receive a notification:
-
-| Moves | Message                                    |
-| ----- | ------------------------------------------ |
-| 10    | Getting warmed up.                         |
-| 25    | Still going. Respect.                      |
-| 50    | 50 moves. God's Number is 20. Just saying. |
-| 69    | Nice.                                      |
-| 100   | Certified unsolvable.                      |
-| 200   | Are you okay?                              |
-| 420   | Blaze it. To the solved state.             |
-| 500   | This cube has never been solved before.    |
-| 1000  | You have made a terrible mistake.          |
+Live at: [rubiks-cube.vercel.app](https://rubiks-cube.vercel.app)
 
 ---
 
-## How to Actually Solve It (if you want to cheat)
+## What It Does
 
-1. Scramble the cube
-2. Make as many moves as you want. The solver tracks the actual current state, not just the scramble.
-3. Click **Solve**
-4. The solution panel slides up showing every move
-5. Click **Play Solution** to watch it auto-solve, or step through manually
-6. Each move chip highlights as it's applied
-7. Confetti detonates when it's done
+**Solve any state in 20 moves or fewer.** The Kociemba two-phase algorithm finds God's Number solutions. Hit Solve, get a slide-up panel with every move as a chip, hit Play, watch it auto-solve with each chip highlighting in real time. Built the full step-by-step playback system from scratch.
+
+**Teaches you famous patterns.** Eight classic configurations (Checkerboard, Inception, Cube-in-Cube-in-Cube, etc.). Click one and it resets to solved, shows you the exact move sequence, and lets you watch it build step by step. Actually educational. Selah asked for this.
+
+**CHAOS mode is genuinely unhinged.** Not "here is some confetti." The screen shakes with a 12-keyframe CSS animation. Red flash overlay fires three times. 680 confetti particles explode from center and all four corners at once. 50 random moves execute at 22ms each. Screen shakes again at move 12, 28, and 42 as it's happening. Triple burst finale. Random rotating message. "THE CUBE HAS ACHIEVED CONSCIOUSNESS." That kind of thing.
+
+**WCA-legal scrambles.** Same format used in official speedcubing competitions. Timer runs to the millisecond.
+
+**Move counter with escalating disrespect.** At 50 moves: "God's Number is 20. Just saying." At 69: "Nice." At 500: "This cube has never been solved before." At 1000: "You have made a terrible mistake."
 
 ---
 
-## Tech Stack
+## The Engineering That Actually Mattered
 
-- **Next.js 15** (App Router): wrapper that serves the cube via full-screen iframe
-- **cubing.js:** TwistyPlayer for 3D rendering, `cubing/scramble` for WCA scrambles, `cubing/search` for Kociemba solver
-- **canvas-confetti:** for when you need particles to fill the void
-- **Tailwind CSS:** for the outer wrapper
+### The rendering problem nobody talks about
+
+TwistyPlayer (cubing.js) initializes its Three.js scene inside a callback gated behind an IntersectionObserver check: `entry.intersectionRect.height > 0`. If the element has zero computed height when `connectedCallback` fires, the observer sees nothing, the scene never initializes, and you stare at a black screen wondering what you did wrong.
+
+The fix is one line: set `position: fixed; inset: 0` on the element _before_ calling `document.body.insertBefore()`. That guarantees the IntersectionObserver fires with full viewport height. Took longer to find than it should have. Now it works every time.
+
+### The solver accuracy problem
+
+First attempt: read `player.alg`, parse it as an Alg, apply it to the cube3x3x3 KPuzzle, pass to solver. Broke because `player.alg` only reflects what was last assigned via the setter. Moves added with `experimentalAddMove` (every button press, every keyboard move) go into the player's internal animation stack. They never update the property.
+
+Second attempt: grab `player.experimentalModel.currentPattern.get()`. Broke with "non-oriented puzzles are not supported" because the player's internal KPattern uses a different puzzle definition than the solver expects.
+
+Actual fix: `player.experimentalModel.alg.get()` returns the full accumulated Alg including every `experimentalAddMove` since the last setter call. Apply that to `cube3x3x3.kpuzzle().defaultPattern()`, pass the resulting KPattern to `experimentalSolve3x3x3IgnoringCenters`. Correct puzzle type, correct state, correct solution.
+
+### Architecture choice
+
+The cube runs as a standalone HTML file in `public/cube-app.html` with all cubing.js dependencies loaded from CDN. The Next.js app is literally just a full-screen iframe pointing at it. This was intentional. Webpack does not play well with Web Components, Shadow DOM, and Three.js scene lifecycle management. Keeping it as vanilla HTML with ESM imports from CDN is the correct call. The solver, pattern player, timer, confetti, and CHAOS mode are all in one 780-line file with zero build step.
+
+---
+
+## Stack
+
+- **cubing.js:** TwistyPlayer (WebGL), `cubing/scramble` (WCA scrambles), `cubing/search` (Kociemba solver), `cubing/puzzles` + `cubing/alg` (state computation)
+- **canvas-confetti:** particle physics
+- **Next.js 15 + Tailwind CSS:** wrapper app
 - **Vercel:** deployment
 
-The cube itself runs as a standalone HTML file (`public/cube-app.html`) with all dependencies loaded from CDN. This sidesteps webpack entirely, which is the correct choice when your rendering pipeline involves Web Components, Shadow DOM, IntersectionObservers, and a Three.js scene that refuses to initialize unless the DOM geometry is exactly right.
-
 ---
 
-## Development
+## Run It
 
 ```bash
 npm install
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000).
+[http://localhost:3000](http://localhost:3000)
 
-The cube is at `public/cube-app.html`. The Next.js app at `app/page.tsx` is just an iframe pointing at it.
+The cube logic is at `public/cube-app.html`. Everything else is scaffolding.
 
 ---
 
-## The Technical Backstory (for the curious)
+## About
 
-**Why it renders at all:** TwistyPlayer gates its Three.js initialization behind an IntersectionObserver that checks `entry.intersectionRect.height > 0`. If the element has zero height when `connectedCallback` fires, the scene never initializes. Setting `position: fixed; inset: 0` before `document.body.insertBefore()` guarantees full viewport height at observation time.
+Caleb Newton. Sophomore at USC Iovine and Young Academy. Building [Amber](https://github.com/amber-organization/amber) (health OS), consulting at four companies, and occasionally making Rubik's cube apps for my sister on a Tuesday.
 
-**Why the solver is accurate:** `player.alg` only reflects what was last assigned via the setter. Moves added with `experimentalAddMove` live in the player's internal animation stack and don't update that property. The solver reads `player.experimentalModel.currentPattern.get()` instead, which returns the actual computed KPattern at the current moment, capturing every move ever made.
+[calebnewton.me](https://calebnewton.me) | [GitHub](https://github.com/calebnewtonusc)
 
 ---
 
