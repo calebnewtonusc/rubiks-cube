@@ -698,15 +698,24 @@
       flashHint("AI is working very hard right now...", 4000);
 
       try {
-        const { experimentalSolve3x3x3IgnoringCenters } =
-          await import("https://cdn.cubing.net/v0/js/cubing/search");
+        const [
+          { experimentalSolve3x3x3IgnoringCenters },
+          { cube3x3x3 },
+        ] = await Promise.all([
+          import("https://cdn.cubing.net/v0/js/cubing/search"),
+          import("https://cdn.cubing.net/v0/js/cubing/puzzles"),
+        ]);
 
-        // Read the actual current KPattern from the player's model.
-        // This captures the scramble AND every experimentalAddMove since,
-        // unlike player.alg which only reflects what was last set via the setter.
-        const currentPattern = await player.experimentalModel.currentPattern.get();
-        const solution = await experimentalSolve3x3x3IgnoringCenters(currentPattern);
-        const solStr = solution.toString().trim();
+        // player.experimentalModel.alg.get() returns the full accumulated Alg,
+        // including every experimentalAddMove since the last player.alg assignment.
+        // We then apply it to the cube3x3x3 KPuzzle (which has orientation metadata
+        // the solver requires), rather than passing the player's internal KPattern
+        // which uses a different puzzle definition and triggers "non-oriented puzzles".
+        const kpuzzle  = await cube3x3x3.kpuzzle();
+        const fullAlg  = await player.experimentalModel.alg.get();
+        const state    = kpuzzle.defaultPattern().applyAlg(fullAlg);
+        const solution = await experimentalSolve3x3x3IgnoringCenters(state);
+        const solStr   = solution.toString().trim();
 
         if (!solStr) {
           // Already solved
