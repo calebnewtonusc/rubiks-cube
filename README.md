@@ -64,4 +64,12 @@ The cube logic is at `public/cube-app.html`. Everything else is scaffolding.
 
 ---
 
+## Credits
+
+- [cubing/cubing.js](https://github.com/cubing/cubing.js): the entire cube engine. TwistyPlayer, WCA scramble generation, Kociemba two-phase solver, KPuzzle state system. None of this exists without this library.
+- [catdad/canvas-confetti](https://github.com/catdad/canvas-confetti): the particle physics powering every explosion.
+- [ruwix.com](https://ruwix.com) and the [Speedsolving Wiki](https://www.speedsolving.com/wiki): source for all eight famous pattern algorithms (Checkerboard, 6-Dots, Inception, etc.). Community-documented over decades.
+
+---
+
 All glory to God! ✝️❤️
