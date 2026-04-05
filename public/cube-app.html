@@ -246,16 +246,37 @@
 
     @keyframes spin { to { transform: rotate(360deg); } }
     @keyframes pop { 0%,100%{transform:scale(1)} 50%{transform:scale(1.15)} }
-    @keyframes shake {
-      0%,100%{transform:translateX(0) rotate(0)}
-      20%{transform:translateX(-10px) rotate(-0.8deg)}
-      40%{transform:translateX(10px) rotate(0.8deg)}
-      60%{transform:translateX(-7px) rotate(-0.4deg)}
-      80%{transform:translateX(7px) rotate(0.4deg)}
+
+    /* ── CHAOS screen shake ── */
+    @keyframes screen-shake {
+      0%,100% { transform:translate(0,0) rotate(0deg); }
+      8%  { transform:translate(-12px,-6px) rotate(-1.2deg); }
+      16% { transform:translate(14px,8px)  rotate(1.4deg); }
+      24% { transform:translate(-10px,10px) rotate(-1deg); }
+      32% { transform:translate(12px,-8px) rotate(1.2deg); }
+      40% { transform:translate(-16px,4px) rotate(-1.6deg); }
+      48% { transform:translate(16px,-4px) rotate(1.6deg); }
+      56% { transform:translate(-8px,12px) rotate(-0.8deg); }
+      64% { transform:translate(10px,-10px) rotate(1deg); }
+      72% { transform:translate(-14px,6px) rotate(-1.4deg); }
+      80% { transform:translate(8px,8px)  rotate(0.8deg); }
+      88% { transform:translate(-6px,-6px) rotate(-0.6deg); }
     }
+    html.chaos { animation: screen-shake 0.65s ease both; }
+
+    /* Flash overlay */
+    #chaos-flash {
+      position: fixed; inset: 0; z-index: 200;
+      pointer-events: none;
+      background: radial-gradient(ellipse at center, rgba(220,38,38,0.55) 0%, transparent 70%);
+      opacity: 0; transition: opacity 0.08s ease;
+    }
+    #chaos-flash.on { opacity: 1; }
   </style>
 </head>
 <body>
+
+  <div id="chaos-flash"></div>
 
   <div id="loading">
     <div class="spinner"></div>
@@ -268,7 +289,7 @@
   <div id="solution-panel">
     <div class="sol-header">
       <div>
-        <div class="sol-title">Optimal Solution</div>
+        <div class="sol-title" id="sol-title">Optimal Solution</div>
         <div class="sol-meta" id="sol-meta"></div>
       </div>
       <div style="display:flex;align-items:center;gap:8px;">
@@ -479,8 +500,30 @@
     }
 
     function chaosBlast() {
-      confetti({ particleCount: 150, spread: 360, startVelocity: 70, gravity: 1.1,
-        colors: ["#ff4500","#ff0000","#ff8c00","#dc2626","#ef4444"] });
+      // Simultaneous explosions from every corner and center
+      const opts = { spread: 360, startVelocity: 80, gravity: 1.2,
+        colors: ["#ff4500","#ff0000","#ff8c00","#dc2626","#ef4444","#fbbf24","#7c3aed"] };
+      confetti({ ...opts, particleCount: 200, origin: { x: 0.5, y: 0.5 } });
+      confetti({ ...opts, particleCount: 120, origin: { x: 0,   y: 0   }, angle: 315 });
+      confetti({ ...opts, particleCount: 120, origin: { x: 1,   y: 0   }, angle: 225 });
+      confetti({ ...opts, particleCount: 120, origin: { x: 0,   y: 1   }, angle: 45  });
+      confetti({ ...opts, particleCount: 120, origin: { x: 1,   y: 1   }, angle: 135 });
+    }
+
+    function screenShake() {
+      const html = document.documentElement;
+      html.classList.remove("chaos");
+      void html.offsetWidth; // reflow to restart animation
+      html.classList.add("chaos");
+      html.addEventListener("animationend", () => html.classList.remove("chaos"), { once: true });
+    }
+
+    function flashRed() {
+      const el = document.getElementById("chaos-flash");
+      el.classList.add("on");
+      setTimeout(() => el.classList.remove("on"), 120);
+      setTimeout(() => { el.classList.add("on"); setTimeout(() => el.classList.remove("on"), 80); }, 260);
+      setTimeout(() => { el.classList.add("on"); setTimeout(() => el.classList.remove("on"), 60); }, 420);
     }
 
     function scrambleBlast() {
@@ -559,6 +602,16 @@
     // CHAOS MODE
     // ─────────────────────────────────────────────
 
+    const CHAOS_MSGS = [
+      "YOUR CUBE IS IN SHAMBLES.",
+      "NOBODY IS IN CONTROL.",
+      "THIS IS FINE.",
+      "GOD'S NUMBER CANNOT SAVE YOU NOW.",
+      "THE CUBE HAS ACHIEVED CONSCIOUSNESS.",
+      "WHAT DID YOU EXPECT.",
+      "MAXIMUM ENTROPY REACHED.",
+    ];
+
     window.handleChaos = async function() {
       if (isBusy) return;
       isBusy = true;
@@ -567,27 +620,44 @@
       const btn = document.getElementById("btn-chaos");
       btn.textContent = "CHAOS...";
 
-      // First explosion
+      // Phase 1: warning blast
+      screenShake();
+      flashRed();
       chaosBlast();
-      flashHint("CHAOS MODE ACTIVATED", 3500);
+      flashHint("CHAOS MODE ACTIVATED", 1200);
 
       const ALL = ["U","U'","U2","R","R'","R2","F","F'","F2",
                    "D","D'","D2","L","L'","L2","B","B'","B2",
                    "M","M'","E","E'","S","S'"];
-      const count = 35;
+      const count = 50;
+
       for (let i = 0; i < count; i++) {
         const move = ALL[Math.floor(Math.random() * ALL.length)];
         player.experimentalAddMove(move);
         moveCount++;
-        if (i % 6 === 0) document.getElementById("move-count").textContent = String(moveCount);
-        await new Promise(r => setTimeout(r, 40));
+        document.getElementById("move-count").textContent = String(moveCount);
+
+        // Periodic shake bursts mid-chaos
+        if (i === 12) { screenShake(); flashRed(); chaosBlast(); }
+        if (i === 28) { screenShake(); flashRed(); }
+        if (i === 42) { screenShake(); flashRed(); chaosBlast(); }
+
+        await new Promise(r => setTimeout(r, 22));
       }
-      document.getElementById("move-count").textContent = String(moveCount);
+
       hasScrambled = true;
 
-      // Second explosion (delayed for drama)
-      setTimeout(chaosBlast, 150);
-      setTimeout(() => flashHint("Chaos achieved. You did this.", 2500), 1800);
+      // Final nuclear explosion
+      setTimeout(() => {
+        screenShake();
+        flashRed();
+        chaosBlast();
+        setTimeout(chaosBlast, 180);
+        setTimeout(chaosBlast, 380);
+      }, 100);
+
+      const msg = CHAOS_MSGS[Math.floor(Math.random() * CHAOS_MSGS.length)];
+      setTimeout(() => flashHint(msg, 3000), 600);
 
       btn.textContent = "CHAOS";
       isBusy = false;
@@ -600,14 +670,17 @@
     async function applyPattern(p) {
       if (isBusy) return;
       closeSolution();
-      flashHint(`Applying: ${p.name}...`);
-      player.alg = p.alg;
+
+      // Always start from solved so the move sequence actually makes sense
+      player.alg = "";
       player.timestamp = Infinity;
       moveCount = 0;
-      hasScrambled = true;
+      hasScrambled = false;
       document.getElementById("move-count").textContent = "0";
-      scrambleBlast();
-      setTimeout(() => flashHint(p.desc || p.name), 600);
+
+      const moves = p.alg.trim().split(/\s+/).filter(Boolean);
+      showSolution(moves, `Pattern: ${p.name}`, `${p.desc} — ${moves.length} moves from solved`);
+      flashHint(`Watch how to build: ${p.name}`, 2000);
     }
 
     // ─────────────────────────────────────────────
@@ -652,7 +725,7 @@
       isBusy = false;
     };
 
-    function showSolution(moves) {
+    function showSolution(moves, title = "Optimal Solution", meta = null) {
       solutionMoves = moves;
       isPlayingSol = false;
 
@@ -666,15 +739,19 @@
         movesEl.appendChild(chip);
       });
 
+      document.getElementById("sol-title").textContent = title;
       document.getElementById("sol-meta").textContent =
-        `${moves.length} moves to freedom`;
+        meta || `${moves.length} moves to freedom`;
       document.getElementById("sol-badge").textContent =
         moves.length <= 20 ? "God's Number territory" : `${moves.length} moves`;
-      document.getElementById("btn-play").textContent = "Play Solution";
+      document.getElementById("btn-play").textContent =
+        title.startsWith("Pattern:") ? "Play Pattern" : "Play Solution";
       document.getElementById("btn-play").disabled = false;
       document.getElementById("solution-panel").classList.add("open");
 
-      flashHint(`${moves.length} moves. You had one job.`, 2000);
+      if (!title.startsWith("Pattern:")) {
+        flashHint(`${moves.length} moves. You had one job.`, 2000);
+      }
     }
 
     window.closeSolution = function() {
