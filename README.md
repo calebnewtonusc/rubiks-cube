@@ -10,16 +10,16 @@ Built with [cubing.js](https://js.cubing.net/) and [canvas-confetti](https://git
 
 ### The Basics
 
-- **3D Rubik's Cube** — rendered in WebGL via TwistyPlayer
-- **Orbit** — drag the background to spin the cube in any direction
-- **Arrow keys** — rotate the whole cube (up/down/left/right)
-- **Face move buttons** — U, U', R, R', F, F', D, D', L, L', B, B' (plus M, E, S slice moves)
+- **3D Rubik's Cube:** rendered in WebGL via TwistyPlayer
+- **Orbit:** drag the background to spin the cube in any direction
+- **Arrow keys:** rotate the whole cube (up/down/left/right)
+- **Face move buttons:** U, U', R, R', F, F', D, D', L, L', B, B' (plus M, E, S slice moves)
 
 ### Scramble and Solve
 
-- **Scramble** — generates a WCA-legal random state scramble (the kind used in official speedcubing competitions). Fires confetti on scramble.
-- **Solve** — runs the Kociemba two-phase algorithm, the same algorithm that finds God's Number solutions (20 moves or fewer). Shows the full move sequence with step-by-step playback. Each chip highlights as you play through it.
-- **Reset** — snap back to solved state instantly
+- **Scramble:** generates a WCA-legal random state scramble (the kind used in official speedcubing competitions). Fires confetti on scramble.
+- **Solve:** runs the Kociemba two-phase algorithm, the same algorithm that finds God's Number solutions (20 moves or fewer). Shows the full move sequence with step-by-step playback. Each chip highlights as you play through it.
+- **Reset:** snap back to solved state instantly
 
 ### Famous Patterns (Step-by-Step)
 
@@ -77,7 +77,7 @@ The counter tracks every move. At specific counts, you receive a notification:
 ## How to Actually Solve It (if you want to cheat)
 
 1. Scramble the cube
-2. Make as many moves as you want — the solver tracks the actual current state, not just the scramble
+2. Make as many moves as you want. The solver tracks the actual current state, not just the scramble.
 3. Click **Solve**
 4. The solution panel slides up showing every move
 5. Click **Play Solution** to watch it auto-solve, or step through manually
@@ -88,11 +88,11 @@ The counter tracks every move. At specific counts, you receive a notification:
 
 ## Tech Stack
 
-- **Next.js 15** (App Router) — wrapper that serves the cube via full-screen iframe
-- **cubing.js** — TwistyPlayer for 3D rendering, `cubing/scramble` for WCA scrambles, `cubing/search` for Kociemba solver
-- **canvas-confetti** — for when you need particles to fill the void
-- **Tailwind CSS** — for the outer wrapper
-- **Vercel** — deployment
+- **Next.js 15** (App Router): wrapper that serves the cube via full-screen iframe
+- **cubing.js:** TwistyPlayer for 3D rendering, `cubing/scramble` for WCA scrambles, `cubing/search` for Kociemba solver
+- **canvas-confetti:** for when you need particles to fill the void
+- **Tailwind CSS:** for the outer wrapper
+- **Vercel:** deployment
 
 The cube itself runs as a standalone HTML file (`public/cube-app.html`) with all dependencies loaded from CDN. This sidesteps webpack entirely, which is the correct choice when your rendering pipeline involves Web Components, Shadow DOM, IntersectionObservers, and a Three.js scene that refuses to initialize unless the DOM geometry is exactly right.
 
