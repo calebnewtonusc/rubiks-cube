@@ -4,164 +4,258 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Rubik's Cube</title>
+  <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.3/dist/confetti.browser.min.js"></script>
   <style>
     *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
 
     html, body {
       width: 100%; height: 100%;
-      background: #000;
+      background: #09090b;
       overflow: hidden;
       -webkit-font-smoothing: antialiased;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+      color: white;
     }
 
-    /*
-      CRITICAL: position:fixed + inset:0 means this element fills the iframe viewport
-      directly. IntersectionObserver (root:null = iframe viewport) will always see
-      intersectionRect.height = iframe height > 0, so TwistyPlayer's 3D scene
-      initialization is guaranteed to fire.
-    */
+    /* The cube — position:fixed fills the iframe viewport exactly so
+       IntersectionObserver always fires with height > 0 */
     twisty-player {
       position: fixed;
-      top: 0; left: 0;
-      width: 100%;
-      height: 100%;
+      top: 0; left: 0; width: 100%; height: 100%;
       z-index: 0;
     }
 
-    /* Loading overlay */
+    /* ── Loading ── */
     #loading {
       position: fixed; inset: 0; z-index: 5;
       display: flex; flex-direction: column;
       align-items: center; justify-content: center; gap: 12px;
       background: #09090b;
-      transition: opacity 0.3s ease;
+      transition: opacity 0.4s ease;
     }
     #loading.fade { opacity: 0; pointer-events: none; }
     #loading.gone { display: none; }
     .spinner {
-      width: 28px; height: 28px;
-      border: 2px solid #3f3f46;
-      border-top-color: #6366f1;
-      border-radius: 50%;
-      animation: spin 0.7s linear infinite;
+      width: 32px; height: 32px;
+      border: 2px solid #27272a; border-top-color: #6366f1;
+      border-radius: 50%; animation: spin 0.7s linear infinite;
     }
     #loading p { font-size: 12px; color: #71717a; }
 
-    /* Hint toast */
+    /* ── Hint toast ── */
     #hint-toast {
       position: fixed; top: 68px; left: 50%; transform: translateX(-50%);
-      z-index: 30;
-      padding: 6px 16px; border-radius: 999px;
-      background: rgba(24,24,27,0.92); border: 1px solid #3f3f46;
-      backdrop-filter: blur(8px);
-      color: white; font-family: ui-monospace, 'Cascadia Code', Menlo, monospace;
-      font-size: 12px; font-weight: 600; letter-spacing: 0.05em;
-      white-space: nowrap; pointer-events: none;
+      z-index: 60;
+      padding: 7px 18px; border-radius: 999px;
+      background: rgba(24,24,27,0.96); border: 1px solid #3f3f46;
+      backdrop-filter: blur(10px);
+      color: white; font-family: ui-monospace, monospace;
+      font-size: 12px; font-weight: 700; letter-spacing: 0.04em;
+      pointer-events: none; white-space: nowrap;
+      max-width: 88vw; overflow: hidden; text-overflow: ellipsis;
       opacity: 0; transition: opacity 0.12s ease;
     }
     #hint-toast.show { opacity: 1; }
 
-    /* UI overlay — strict grid so no pointer-events:auto element overlaps the cube */
+    /* ── Solution panel ── */
+    #solution-panel {
+      position: fixed; bottom: 0; left: 0; right: 0; z-index: 55;
+      background: rgba(9,9,11,0.98); border-top: 1px solid #27272a;
+      backdrop-filter: blur(20px);
+      padding: 16px 20px 28px;
+      transform: translateY(100%);
+      transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+      max-height: 52vh; overflow-y: auto;
+    }
+    #solution-panel.open { transform: translateY(0); }
+    .sol-header {
+      display: flex; align-items: flex-start; justify-content: space-between;
+      margin-bottom: 14px; gap: 12px;
+    }
+    .sol-title { font-size: 14px; font-weight: 700; color: white; }
+    .sol-meta { font-size: 11px; color: #71717a; margin-top: 3px; }
+    .sol-badge {
+      display: inline-flex; align-items: center; gap: 4px;
+      padding: 2px 8px; border-radius: 999px;
+      background: rgba(99,102,241,0.15); border: 1px solid rgba(99,102,241,0.3);
+      color: #a5b4fc; font-size: 11px; font-weight: 600;
+      white-space: nowrap;
+    }
+    #solution-close {
+      background: none; border: none; color: #52525b; cursor: pointer;
+      font-size: 20px; line-height: 1; padding: 2px 6px; border-radius: 6px;
+      transition: all 0.1s; flex-shrink: 0;
+    }
+    #solution-close:hover { color: white; background: #27272a; }
+    #solution-moves {
+      display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 14px;
+    }
+    .sol-move {
+      padding: 4px 10px; border-radius: 8px;
+      font-family: ui-monospace, monospace;
+      font-size: 13px; font-weight: 600;
+      background: #18181b; border: 1px solid #27272a; color: #d4d4d8;
+      transition: all 0.1s;
+    }
+    .sol-move.done { background: #1e3a2f; border-color: #16a34a; color: #4ade80; }
+    .sol-move.active {
+      background: #312e81; border-color: #6366f1; color: white;
+      animation: pop 0.25s ease;
+    }
+    #btn-play {
+      width: 100%; padding: 11px; border-radius: 12px; border: none;
+      background: linear-gradient(135deg, #4f46e5, #7c3aed);
+      color: white; font-size: 14px; font-weight: 700; font-family: inherit;
+      cursor: pointer; transition: all 0.15s;
+      box-shadow: 0 4px 16px rgba(99,102,241,0.35);
+    }
+    #btn-play:hover:not(:disabled) { opacity: 0.9; transform: translateY(-1px); }
+    #btn-play:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
+
+    /* ── UI overlay — strict grid so nothing overlaps cube ── */
     #ui {
       position: fixed; inset: 0; z-index: 20;
       pointer-events: none;
       display: grid;
       grid-template-rows: auto 1fr auto;
-      color: white;
     }
 
-    /* Header — only occupies its own row, never overlaps cube */
+    /* Header */
     #header {
-      pointer-events: auto;
-      grid-row: 1;
+      grid-row: 1; pointer-events: auto;
       display: flex; align-items: center; justify-content: space-between;
-      padding: 20px 20px 10px;
-      background: linear-gradient(to bottom, rgba(9,9,11,0.75) 0%, transparent 100%);
+      padding: 20px 20px 10px; gap: 12px;
+      background: linear-gradient(to bottom, rgba(9,9,11,0.82) 0%, transparent 100%);
     }
+    .title-group { flex: 1; min-width: 0; }
+    .title { font-size: 18px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.2; }
+    .subtitle { font-size: 11px; color: #71717a; margin-top: 2px; }
 
-    .title { font-size: 18px; font-weight: 700; letter-spacing: -0.02em; color: white; line-height: 1.2; }
-    .subtitle { font-size: 12px; color: #71717a; margin-top: 2px; }
-
-    .move-pill {
-      display: flex; align-items: center; gap: 6px;
-      padding: 6px 12px; border-radius: 12px;
-      background: rgba(24,24,27,0.85); border: 1px solid #27272a;
-      backdrop-filter: blur(8px);
+    .hud { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+    .pill {
+      display: flex; align-items: center; gap: 5px;
+      padding: 5px 10px; border-radius: 10px;
+      background: rgba(24,24,27,0.9); border: 1px solid #27272a;
+      backdrop-filter: blur(8px); transition: border-color 0.15s;
     }
-    .move-label { font-size: 12px; font-weight: 500; color: #71717a; }
-    #move-count {
-      font-size: 14px; font-weight: 700;
+    .pill.clickable { cursor: pointer; }
+    .pill.clickable:hover { border-color: #3f3f46; }
+    .pill.running { border-color: #22c55e; background: rgba(22,163,74,0.12); }
+    .pill.stopped { border-color: #f59e0b; background: rgba(245,158,11,0.08); }
+    .pill-label { font-size: 11px; font-weight: 500; color: #71717a; }
+    .pill-value {
+      font-size: 13px; font-weight: 700;
       font-family: ui-monospace, monospace;
-      min-width: 20px; text-align: center;
     }
+    #timer-value { min-width: 46px; text-align: right; }
+    #move-count { min-width: 18px; text-align: center; }
 
-    /* Spacer — cube is fully visible and interactive here, no pointer capture */
+    /* Spacer — NOTHING here can have pointer-events other than none */
     #spacer { grid-row: 2; pointer-events: none; }
 
-    /* Controls panel — only occupies its own row, never overlaps cube */
-    #controls {
-      pointer-events: auto;
-      grid-row: 3;
-      padding: 10px 16px 24px;
-      display: flex; flex-direction: column; gap: 10px;
-      background: linear-gradient(to top, rgba(9,9,11,0.94) 55%, transparent 100%);
+    /* Bottom panel */
+    #panel {
+      grid-row: 3; pointer-events: auto;
+      padding: 8px 16px 22px;
+      display: flex; flex-direction: column; gap: 8px;
+      background: linear-gradient(to top, rgba(9,9,11,0.97) 60%, transparent 100%);
     }
 
-    .action-row { display: flex; gap: 8px; justify-content: center; }
+    /* Action buttons */
+    .row { display: flex; gap: 6px; justify-content: center; }
 
-    .btn-scramble, .btn-reset {
-      padding: 9px 26px; border-radius: 12px;
-      font-size: 14px; font-weight: 600;
+    .btn {
+      padding: 8px 14px; border-radius: 10px;
+      font-size: 12px; font-weight: 700;
       border: none; cursor: pointer;
       transition: all 0.15s; font-family: inherit;
+      white-space: nowrap; letter-spacing: 0.01em;
     }
+    .btn:disabled { opacity: 0.35; cursor: not-allowed !important; transform: none !important; }
     .btn-scramble {
-      background: #4f46e5; color: white;
-      box-shadow: 0 4px 14px rgba(99,102,241,0.3);
+      background: #4f46e5; color: white; padding: 8px 20px;
+      box-shadow: 0 2px 10px rgba(99,102,241,0.3);
     }
     .btn-scramble:hover:not(:disabled) { background: #4338ca; }
-    .btn-scramble:active:not(:disabled) { background: #3730a3; }
+    .btn-chaos {
+      background: linear-gradient(135deg, #dc2626, #ea580c); color: white;
+      box-shadow: 0 2px 10px rgba(220,38,38,0.3);
+    }
+    .btn-chaos:hover:not(:disabled) { filter: brightness(1.1); transform: scale(1.02); }
+    .btn-chaos:active:not(:disabled) { transform: scale(0.96); }
+    .btn-solve {
+      background: linear-gradient(135deg, #059669, #0d9488); color: white;
+      box-shadow: 0 2px 10px rgba(5,150,105,0.3);
+    }
+    .btn-solve:hover:not(:disabled) { filter: brightness(1.1); }
     .btn-reset {
-      background: #27272a; color: #f4f4f5;
-      border: 1px solid #3f3f46;
+      background: #27272a; color: #d4d4d8; border: 1px solid #3f3f46;
     }
     .btn-reset:hover:not(:disabled) { background: #3f3f46; }
-    .btn-scramble:disabled, .btn-reset:disabled { opacity: 0.4; cursor: not-allowed; }
 
+    /* Face move buttons */
     #move-btns {
-      display: flex; flex-wrap: wrap; gap: 6px;
-      justify-content: center; max-width: 336px; margin: 0 auto;
+      display: flex; flex-wrap: wrap; gap: 5px;
+      justify-content: center; max-width: 320px; margin: 0 auto;
     }
-
     .move-btn {
-      width: 48px; height: 36px; border-radius: 8px;
-      font-size: 13px; font-family: ui-monospace, monospace; font-weight: 600;
-      background: rgba(24,24,27,0.82); border: 1px solid #27272a; color: #d4d4d8;
-      cursor: pointer; transition: all 0.1s; backdrop-filter: blur(4px);
+      width: 46px; height: 34px; border-radius: 8px;
+      font-size: 12px; font-family: ui-monospace, monospace; font-weight: 600;
+      background: rgba(24,24,27,0.88); border: 1px solid #27272a; color: #d4d4d8;
+      cursor: pointer; transition: all 0.1s;
     }
-    .move-btn:hover:not(:disabled) { background: rgba(39,39,42,0.9); border-color: #3f3f46; color: white; }
-    .move-btn:active:not(:disabled) { transform: scale(0.95); }
-    .move-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .move-btn:hover:not(:disabled) { background: #27272a; border-color: #3f3f46; color: white; }
+    .move-btn:active:not(:disabled) { transform: scale(0.93); }
+    .move-btn:disabled { opacity: 0.38; cursor: not-allowed; }
 
-    .key-hints {
+    /* Section label */
+    .sec-label {
+      font-size: 10px; font-weight: 600; color: #3f3f46;
+      text-transform: uppercase; letter-spacing: 0.1em; text-align: center;
+    }
+
+    /* Pattern buttons */
+    #pattern-btns {
+      display: flex; flex-wrap: wrap; gap: 5px;
+      justify-content: center; max-width: 420px; margin: 0 auto;
+    }
+    .pat-btn {
+      padding: 5px 10px; border-radius: 8px;
+      font-size: 11px; font-weight: 600;
+      background: rgba(24,24,27,0.88); border: 1px solid #27272a; color: #a1a1aa;
+      cursor: pointer; transition: all 0.12s; font-family: inherit; white-space: nowrap;
+    }
+    .pat-btn:hover:not(:disabled) {
+      background: rgba(99,102,241,0.12); border-color: rgba(99,102,241,0.5); color: #a5b4fc;
+    }
+    .pat-btn:active:not(:disabled) { transform: scale(0.94); }
+    .pat-btn:disabled { opacity: 0.38; cursor: not-allowed; }
+
+    /* Key hints */
+    .hints {
       display: flex; align-items: center; justify-content: center;
-      gap: 14px; flex-wrap: wrap;
+      gap: 12px; flex-wrap: wrap;
     }
-    .key-hint { display: flex; align-items: center; gap: 5px; }
+    .hint-item { display: flex; align-items: center; gap: 4px; }
     kbd {
-      padding: 2px 7px; border-radius: 6px;
-      font-family: ui-monospace, monospace; font-size: 11px;
-      background: rgba(24,24,27,0.8); border: 1px solid #27272a; color: #a1a1aa;
+      padding: 2px 6px; border-radius: 5px;
+      font-family: ui-monospace, monospace; font-size: 10px;
+      background: rgba(24,24,27,0.85); border: 1px solid #27272a; color: #71717a;
     }
-    .key-hint span { font-size: 12px; color: #52525b; }
+    .hint-item span { font-size: 10px; color: #3f3f46; }
 
     @keyframes spin { to { transform: rotate(360deg); } }
+    @keyframes pop { 0%,100%{transform:scale(1)} 50%{transform:scale(1.15)} }
+    @keyframes shake {
+      0%,100%{transform:translateX(0) rotate(0)}
+      20%{transform:translateX(-10px) rotate(-0.8deg)}
+      40%{transform:translateX(10px) rotate(0.8deg)}
+      60%{transform:translateX(-7px) rotate(-0.4deg)}
+      80%{transform:translateX(7px) rotate(0.4deg)}
+    }
   </style>
 </head>
 <body>
-
-  <!-- TwistyPlayer is created in JS with constructor options (see script below) -->
 
   <div id="loading">
     <div class="spinner"></div>
@@ -170,29 +264,60 @@
 
   <div id="hint-toast"></div>
 
+  <!-- Slides up from bottom when solver runs -->
+  <div id="solution-panel">
+    <div class="sol-header">
+      <div>
+        <div class="sol-title">Optimal Solution</div>
+        <div class="sol-meta" id="sol-meta"></div>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;">
+        <div class="sol-badge" id="sol-badge"></div>
+        <button id="solution-close" onclick="closeSolution()">x</button>
+      </div>
+    </div>
+    <div id="solution-moves"></div>
+    <button id="btn-play" onclick="playSolution()">Play Solution</button>
+  </div>
+
   <div id="ui">
     <div id="header">
-      <div>
+      <div class="title-group">
         <div class="title">Rubik's Cube</div>
         <div class="subtitle">Drag a face to rotate. Drag background to orbit.</div>
       </div>
-      <div class="move-pill">
-        <span class="move-label">Moves</span>
-        <span id="move-count">0</span>
+      <div class="hud">
+        <div class="pill clickable" id="timer-pill" onclick="toggleTimer()" title="Click or Space to start / stop">
+          <span class="pill-label">Time</span>
+          <span class="pill-value" id="timer-value">0.00s</span>
+        </div>
+        <div class="pill">
+          <span class="pill-label">Moves</span>
+          <span class="pill-value" id="move-count">0</span>
+        </div>
       </div>
     </div>
+
     <div id="spacer"></div>
-    <div id="controls">
-      <div class="action-row">
-        <button class="btn-scramble" id="btn-scramble" disabled onclick="handleScramble()">Scramble</button>
-        <button class="btn-reset" id="btn-reset" disabled onclick="handleReset()">Reset</button>
+
+    <div id="panel">
+      <div class="row">
+        <button class="btn btn-scramble" id="btn-scramble" disabled onclick="handleScramble()">Scramble</button>
+        <button class="btn btn-chaos"    id="btn-chaos"    disabled onclick="handleChaos()">CHAOS</button>
+        <button class="btn btn-solve"    id="btn-solve"    disabled onclick="handleSolve()">Solve</button>
+        <button class="btn btn-reset"    id="btn-reset"    disabled onclick="handleReset()">Reset</button>
       </div>
+
       <div id="move-btns"></div>
-      <div class="key-hints">
-        <div class="key-hint"><kbd>↑ ↓</kbd><span>Tilt</span></div>
-        <div class="key-hint"><kbd>← →</kbd><span>Spin</span></div>
-        <div class="key-hint"><kbd>Drag face</kbd><span>Rotate layer</span></div>
-        <div class="key-hint"><kbd>Drag bg</kbd><span>Orbit</span></div>
+
+      <div class="sec-label">Famous Patterns</div>
+      <div id="pattern-btns"></div>
+
+      <div class="hints">
+        <div class="hint-item"><kbd>Arrow keys</kbd><span>Spin / Tilt</span></div>
+        <div class="hint-item"><kbd>Space</kbd><span>Timer</span></div>
+        <div class="hint-item"><kbd>Drag face</kbd><span>Rotate layer</span></div>
+        <div class="hint-item"><kbd>Drag bg</kbd><span>Orbit</span></div>
       </div>
     </div>
   </div>
@@ -201,77 +326,204 @@
     import { TwistyPlayer } from "https://cdn.cubing.net/v0/js/cubing/twisty";
     import { randomScrambleForEvent } from "https://cdn.cubing.net/v0/js/cubing/scramble";
 
-    const FACE_MOVES = ["U", "U'", "R", "R'", "F", "F'", "D", "D'", "L", "L'", "B", "B'"];
-    const ARROW_MAP = { ArrowUp: "x", ArrowDown: "x'", ArrowLeft: "y'", ArrowRight: "y" };
+    // ─────────────────────────────────────────────
+    // Constants
+    // ─────────────────────────────────────────────
 
-    let moveCount = 0;
-    let hintTimer = null;
+    const FACE_MOVES = ["U","U'","R","R'","F","F'","D","D'","L","L'","B","B'"];
+    const ARROW_MAP  = { ArrowUp:"x", ArrowDown:"x'", ArrowLeft:"y'", ArrowRight:"y" };
+    const CUBE_COLORS = ["#ff0000","#ff8c00","#ffff00","#00bb44","#0055ff","#ffffff"];
 
-    // Create TwistyPlayer via constructor so all options (especially experimentalDragInput)
-    // are passed before connectedCallback wires up input handlers.
-    // CRITICAL: set position:fixed BEFORE appendChild so when connectedCallback fires
-    // and IntersectionObserver observes the element, intersectionRect.height = viewport
-    // height > 0, which triggers the Three.js scene initialization.
+    // Famous patterns with silly names. All verified algs from ruwix.com + speedsolving wiki.
+    const PATTERNS = [
+      { name: "Checkerboard",    alg: "M2 E2 S2",                                                        desc: "The Classic" },
+      { name: "6 Dots",          alg: "U D' R L' F B' U D'",                                             desc: "Dots on every face" },
+      { name: "Inception",       alg: "F L F U' R U F2 L2 U' L' B D' B' L2 U",                          desc: "Cube inside a cube" },
+      { name: "Cube Cubed",      alg: "U' L' U' F' R2 B' R F U B2 U B' L U' F U R F'",                  desc: "Cube in cube in cube" },
+      { name: "Stripes",         alg: "R L' F B' U D' R L'",                                             desc: "6-color stripe" },
+      { name: "Tetris",          alg: "L' R F B' U D' L R'",                                             desc: "L-shaped faces" },
+      { name: "Python",          alg: "F2 R2 B2 L2 U F2 R2 B2 L2 D",                                    desc: "Diagonal wrap" },
+      { name: "Gift Box",        alg: "R L F B U D R L",                                                 desc: "All wrapped up" },
+    ];
+
+    // Snarky milestone messages shown at certain move counts
+    const MILESTONES = [
+      { at: 10,  msg: "Getting warmed up." },
+      { at: 25,  msg: "Still going. Respect." },
+      { at: 50,  msg: "50 moves. God's Number is 20. Just saying." },
+      { at: 69,  msg: "Nice." },
+      { at: 100, msg: "Certified unsolvable." },
+      { at: 200, msg: "Are you okay?" },
+      { at: 420, msg: "Blaze it. To the solved state." },
+      { at: 500, msg: "This cube has never been solved before." },
+      { at: 1000, msg: "You have made a terrible mistake." },
+    ];
+
+    // ─────────────────────────────────────────────
+    // State
+    // ─────────────────────────────────────────────
+
+    let moveCount      = 0;
+    let hasScrambled   = false;
+    let isBusy         = false;
+    let hintTimer      = null;
+
+    let timerState     = "idle";   // idle | running | stopped
+    let timerStart     = 0;
+    let timerElapsed   = 0;
+    let timerTick      = null;
+
+    let solutionMoves  = [];
+    let isPlayingSol   = false;
+
+    // ─────────────────────────────────────────────
+    // TwistyPlayer — style BEFORE insertBefore so
+    // IntersectionObserver fires with full height
+    // ─────────────────────────────────────────────
+
     const player = new TwistyPlayer({
       puzzle: "3x3x3",
       experimentalDragInput: "auto",
       controlPanel: "none",
       hintFacelets: "none",
     });
-    // Do NOT set background:"none" — TwistyPlayer uses color-picking (render-to-texture)
-    // for hit detection. Transparent background makes every non-sticker pixel read as
-    // "background", so all drags orbit. Let the player render its own background and
-    // hide the seam by matching the body background color.
     player.style.cssText = "position:fixed;top:0;left:0;width:100%;height:100%;z-index:0;";
     document.body.insertBefore(player, document.body.firstChild);
 
-    // Build move buttons
-    const moveGrid = document.getElementById("move-btns");
-    for (const move of FACE_MOVES) {
-      const btn = document.createElement("button");
-      btn.className = "move-btn";
-      btn.textContent = move;
-      btn.disabled = true;
-      btn.addEventListener("click", () => addMove(move));
-      moveGrid.appendChild(btn);
-    }
+    // ─────────────────────────────────────────────
+    // Enable controls after 2 animation frames
+    // ─────────────────────────────────────────────
 
-    // Enable controls once the module has loaded (player is upgraded and rendering)
     function enableControls() {
-      const loading = document.getElementById("loading");
-      loading.classList.add("fade");
-      setTimeout(() => loading.classList.add("gone"), 300);
-      document.getElementById("btn-scramble").disabled = false;
-      document.getElementById("btn-reset").disabled = false;
-      document.querySelectorAll(".move-btn").forEach(b => { b.disabled = false; });
+      const ld = document.getElementById("loading");
+      ld.classList.add("fade");
+      setTimeout(() => ld.classList.add("gone"), 420);
+      document.querySelectorAll(".btn, .move-btn, .pat-btn").forEach(b => {
+        b.disabled = false;
+      });
     }
-
-    // The module import finishing means the custom element is registered and the player
-    // is upgraded. Wait 2 frames for layout + IntersectionObserver to fire, then enable.
     requestAnimationFrame(() => requestAnimationFrame(enableControls));
 
-    // Notify parent window if embedded in iframe
-    try { parent.postMessage({ type: "cubeReady" }, "*"); } catch (_) {}
+    // ─────────────────────────────────────────────
+    // Build move + pattern buttons
+    // ─────────────────────────────────────────────
 
+    FACE_MOVES.forEach(move => {
+      const b = document.createElement("button");
+      b.className = "move-btn"; b.textContent = move; b.disabled = true;
+      b.onclick = () => addMove(move);
+      document.getElementById("move-btns").appendChild(b);
+    });
+
+    PATTERNS.forEach(p => {
+      const b = document.createElement("button");
+      b.className = "pat-btn"; b.textContent = p.name; b.disabled = true;
+      b.title = p.desc;
+      b.onclick = () => applyPattern(p);
+      document.getElementById("pattern-btns").appendChild(b);
+    });
+
+    // ─────────────────────────────────────────────
+    // Timer
+    // ─────────────────────────────────────────────
+
+    window.toggleTimer = function() {
+      if (timerState === "running") {
+        // Stop
+        clearInterval(timerTick);
+        timerElapsed = Date.now() - timerStart;
+        timerState = "stopped";
+        renderTimer();
+        document.getElementById("timer-pill").classList.replace("running", "stopped");
+        const s = (timerElapsed / 1000).toFixed(2);
+        flashHint(`${s}s — ${moveCount} moves`, 2500);
+      } else {
+        // Start fresh
+        clearInterval(timerTick);
+        timerState = "running";
+        timerStart = Date.now();
+        timerElapsed = 0;
+        timerTick = setInterval(() => { timerElapsed = Date.now() - timerStart; renderTimer(); }, 16);
+        const pill = document.getElementById("timer-pill");
+        pill.classList.remove("stopped");
+        pill.classList.add("running");
+        renderTimer();
+      }
+    };
+
+    function renderTimer() {
+      document.getElementById("timer-value").textContent = (timerElapsed / 1000).toFixed(2) + "s";
+    }
+
+    function resetTimer() {
+      clearInterval(timerTick);
+      timerState = "idle"; timerElapsed = 0;
+      document.getElementById("timer-value").textContent = "0.00s";
+      document.getElementById("timer-pill").classList.remove("running","stopped");
+    }
+
+    // ─────────────────────────────────────────────
+    // Confetti
+    // ─────────────────────────────────────────────
+
+    const fire = (opts) => confetti({ colors: CUBE_COLORS, ...opts });
+
+    function celebrate() {
+      fire({ particleCount: 80, spread: 70, origin: { y: 0.6 } });
+      setTimeout(() => {
+        fire({ particleCount: 60, angle: 60,  spread: 55, origin: { x: 0 } });
+        fire({ particleCount: 60, angle: 120, spread: 55, origin: { x: 1 } });
+      }, 220);
+      setTimeout(() => fire({ particleCount: 200, spread: 360, startVelocity: 50, gravity: 0.7 }), 520);
+      setTimeout(() => fire({ particleCount: 80,  spread: 360, startVelocity: 25, gravity: 0.4 }), 950);
+    }
+
+    function chaosBlast() {
+      confetti({ particleCount: 150, spread: 360, startVelocity: 70, gravity: 1.1,
+        colors: ["#ff4500","#ff0000","#ff8c00","#dc2626","#ef4444"] });
+    }
+
+    function scrambleBlast() {
+      fire({ particleCount: 50, spread: 90, startVelocity: 38, origin: { y: 0.85 } });
+    }
+
+    // ─────────────────────────────────────────────
     // Hint toast
-    function flashHint(text) {
+    // ─────────────────────────────────────────────
+
+    function flashHint(text, dur = 1100) {
       const el = document.getElementById("hint-toast");
       el.textContent = text;
       el.classList.add("show");
-      if (hintTimer) clearTimeout(hintTimer);
-      hintTimer = setTimeout(() => el.classList.remove("show"), 900);
+      clearTimeout(hintTimer);
+      hintTimer = setTimeout(() => el.classList.remove("show"), dur);
     }
 
-    // Face moves
+    // ─────────────────────────────────────────────
+    // Move tracking + milestones
+    // ─────────────────────────────────────────────
+
+    function bumpMoves(n = 1) {
+      moveCount += n;
+      document.getElementById("move-count").textContent = String(moveCount);
+      const m = MILESTONES.find(x => x.at === moveCount);
+      if (m) flashHint(m.msg, 2200);
+    }
+
     window.addMove = function(move) {
       player.experimentalAddMove(move);
-      moveCount++;
-      document.getElementById("move-count").textContent = String(moveCount);
-      flashHint(move);
+      bumpMoves(1);
+      flashHint(move, 700);
     };
 
+    // ─────────────────────────────────────────────
     // Scramble
+    // ─────────────────────────────────────────────
+
     window.handleScramble = async function() {
+      if (isBusy) return;
+      closeSolution();
+      resetTimer();
       flashHint("Scrambling...");
       try {
         const alg = (await randomScrambleForEvent("333")).toString();
@@ -279,29 +531,232 @@
         player.timestamp = Infinity;
         moveCount = 0;
         document.getElementById("move-count").textContent = "0";
-        setTimeout(() => flashHint("Scrambled!"), 80);
-      } catch (e) {
-        console.error("Scramble failed:", e);
-        flashHint("Error");
+        hasScrambled = true;
+        scrambleBlast();
+        setTimeout(() => flashHint("Good luck. You will need it."), 700);
+      } catch(e) {
+        flashHint("Scramble failed. The universe is broken.");
       }
     };
 
+    // ─────────────────────────────────────────────
     // Reset
+    // ─────────────────────────────────────────────
+
     window.handleReset = function() {
+      if (isBusy) return;
+      closeSolution();
+      resetTimer();
       player.alg = "";
       player.timestamp = Infinity;
       moveCount = 0;
+      hasScrambled = false;
       document.getElementById("move-count").textContent = "0";
-      flashHint("Reset");
+      flashHint("Reset. Fresh start. No shame.");
     };
 
-    // Arrow keys
+    // ─────────────────────────────────────────────
+    // CHAOS MODE
+    // ─────────────────────────────────────────────
+
+    window.handleChaos = async function() {
+      if (isBusy) return;
+      isBusy = true;
+      closeSolution();
+
+      const btn = document.getElementById("btn-chaos");
+      btn.textContent = "CHAOS...";
+
+      // First explosion
+      chaosBlast();
+      flashHint("CHAOS MODE ACTIVATED", 3500);
+
+      const ALL = ["U","U'","U2","R","R'","R2","F","F'","F2",
+                   "D","D'","D2","L","L'","L2","B","B'","B2",
+                   "M","M'","E","E'","S","S'"];
+      const count = 35;
+      for (let i = 0; i < count; i++) {
+        const move = ALL[Math.floor(Math.random() * ALL.length)];
+        player.experimentalAddMove(move);
+        moveCount++;
+        if (i % 6 === 0) document.getElementById("move-count").textContent = String(moveCount);
+        await new Promise(r => setTimeout(r, 40));
+      }
+      document.getElementById("move-count").textContent = String(moveCount);
+      hasScrambled = true;
+
+      // Second explosion (delayed for drama)
+      setTimeout(chaosBlast, 150);
+      setTimeout(() => flashHint("Chaos achieved. You did this.", 2500), 1800);
+
+      btn.textContent = "CHAOS";
+      isBusy = false;
+    };
+
+    // ─────────────────────────────────────────────
+    // Pattern presets
+    // ─────────────────────────────────────────────
+
+    async function applyPattern(p) {
+      if (isBusy) return;
+      closeSolution();
+      flashHint(`Applying: ${p.name}...`);
+      player.alg = p.alg;
+      player.timestamp = Infinity;
+      moveCount = 0;
+      hasScrambled = true;
+      document.getElementById("move-count").textContent = "0";
+      scrambleBlast();
+      setTimeout(() => flashHint(p.desc || p.name), 600);
+    }
+
+    // ─────────────────────────────────────────────
+    // Solver (Kociemba via cubing/search CDN)
+    // ─────────────────────────────────────────────
+
+    window.handleSolve = async function() {
+      if (isBusy) return;
+      isBusy = true;
+      closeSolution();
+
+      const btn = document.getElementById("btn-solve");
+      btn.textContent = "Thinking...";
+      btn.disabled = true;
+      flashHint("AI is working very hard right now...", 4000);
+
+      try {
+        const [
+          { experimentalSolve3x3x3IgnoringCenters },
+          { cube3x3x3 },
+          { Alg },
+        ] = await Promise.all([
+          import("https://cdn.cubing.net/v0/js/cubing/search"),
+          import("https://cdn.cubing.net/v0/js/cubing/puzzles"),
+          import("https://cdn.cubing.net/v0/js/cubing/alg"),
+        ]);
+
+        const kpuzzle = await cube3x3x3.kpuzzle();
+
+        // Get current state by applying the accumulated alg
+        const algStr = (() => {
+          try {
+            const raw = player.alg;
+            if (!raw) return "";
+            return typeof raw === "string" ? raw : raw.toString();
+          } catch(_) { return ""; }
+        })();
+
+        const currentAlg = algStr ? Alg.fromString(algStr) : new Alg();
+        const state = kpuzzle.defaultPattern().applyAlg(currentAlg);
+        const solution = await experimentalSolve3x3x3IgnoringCenters(state);
+        const solStr = solution.toString().trim();
+
+        if (!solStr) {
+          // Already solved
+          flashHint("It is already solved. You did it.", 2500);
+          celebrate();
+        } else {
+          showSolution(solStr.split(/\s+/).filter(Boolean));
+        }
+      } catch(e) {
+        console.error("Solver error:", e);
+        flashHint("Solver failed. Some problems are beyond AI.", 2500);
+      }
+
+      btn.textContent = "Solve";
+      btn.disabled = false;
+      isBusy = false;
+    };
+
+    function showSolution(moves) {
+      solutionMoves = moves;
+      isPlayingSol = false;
+
+      const movesEl = document.getElementById("solution-moves");
+      movesEl.innerHTML = "";
+      moves.forEach((m, i) => {
+        const chip = document.createElement("div");
+        chip.className = "sol-move";
+        chip.textContent = m;
+        chip.id = `sm-${i}`;
+        movesEl.appendChild(chip);
+      });
+
+      document.getElementById("sol-meta").textContent =
+        `${moves.length} moves to freedom`;
+      document.getElementById("sol-badge").textContent =
+        moves.length <= 20 ? "God's Number territory" : `${moves.length} moves`;
+      document.getElementById("btn-play").textContent = "Play Solution";
+      document.getElementById("btn-play").disabled = false;
+      document.getElementById("solution-panel").classList.add("open");
+
+      flashHint(`${moves.length} moves. You had one job.`, 2000);
+    }
+
+    window.closeSolution = function() {
+      document.getElementById("solution-panel").classList.remove("open");
+      solutionMoves = [];
+      isPlayingSol = false;
+    };
+
+    window.playSolution = async function() {
+      if (isPlayingSol || !solutionMoves.length) return;
+      isPlayingSol = true;
+      document.getElementById("btn-play").disabled = true;
+      document.getElementById("btn-play").textContent = "Playing...";
+
+      for (let i = 0; i < solutionMoves.length; i++) {
+        if (!isPlayingSol) break;
+        const move = solutionMoves[i];
+
+        // Style chips
+        for (let j = 0; j < solutionMoves.length; j++) {
+          const el = document.getElementById(`sm-${j}`);
+          if (!el) continue;
+          el.className = "sol-move" + (j < i ? " done" : j === i ? " active" : "");
+        }
+
+        player.experimentalAddMove(move);
+        bumpMoves(1);
+        flashHint(move, 380);
+        await new Promise(r => setTimeout(r, 480));
+      }
+
+      if (isPlayingSol) {
+        // Mark all done
+        for (let j = 0; j < solutionMoves.length; j++) {
+          const el = document.getElementById(`sm-${j}`);
+          if (el) el.className = "sol-move done";
+        }
+        setTimeout(() => {
+          closeSolution();
+          celebrate();
+          resetTimer();
+          flashHint("SOLVED. You needed AI help but nobody has to know.", 3500);
+        }, 400);
+      }
+
+      document.getElementById("btn-play").textContent = "Play Solution";
+      document.getElementById("btn-play").disabled = false;
+      isPlayingSol = false;
+    };
+
+    // ─────────────────────────────────────────────
+    // Keyboard
+    // ─────────────────────────────────────────────
+
     window.addEventListener("keydown", e => {
+      if (e.code === "Space" && !e.target.closest("button, input")) {
+        e.preventDefault();
+        toggleTimer();
+        return;
+      }
       const move = ARROW_MAP[e.key];
-      if (!move) return;
-      e.preventDefault();
-      player.experimentalAddMove(move);
+      if (move) { e.preventDefault(); player.experimentalAddMove(move); }
     });
+
+    // Notify parent if embedded
+    try { parent.postMessage({ type: "cubeReady" }, "*"); } catch(_) {}
   </script>
 </body>
 </html>
