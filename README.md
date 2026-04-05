@@ -2,7 +2,7 @@
 
 Built this for my little sister Selah. It is a fully interactive 3D Rubik's cube with a Kociemba two-phase solver, step-by-step pattern tutorials, a speedcubing timer, and a CHAOS mode that shakes the entire screen, flashes red, and detonates confetti from all five points simultaneously. Because why not.
 
-Live at: [rubiks-cube.vercel.app](https://rubiks-cube.vercel.app)
+Live at: [rubiks-cube-three-puce.vercel.app](https://rubiks-cube-three-puce.vercel.app)
 
 ---
 
