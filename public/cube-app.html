@@ -64,21 +64,22 @@
     }
     #hint-toast.show { opacity: 1; }
 
-    /* UI overlay — pointer-events none so cube drag still works */
+    /* UI overlay — strict grid so no pointer-events:auto element overlaps the cube */
     #ui {
       position: fixed; inset: 0; z-index: 20;
       pointer-events: none;
-      display: flex; flex-direction: column;
+      display: grid;
+      grid-template-rows: auto 1fr auto;
       color: white;
     }
 
-    /* Header */
+    /* Header — only occupies its own row, never overlaps cube */
     #header {
       pointer-events: auto;
+      grid-row: 1;
       display: flex; align-items: center; justify-content: space-between;
       padding: 20px 20px 10px;
       background: linear-gradient(to bottom, rgba(9,9,11,0.75) 0%, transparent 100%);
-      flex-shrink: 0;
     }
 
     .title { font-size: 18px; font-weight: 700; letter-spacing: -0.02em; color: white; line-height: 1.2; }
@@ -97,12 +98,13 @@
       min-width: 20px; text-align: center;
     }
 
-    /* Spacer — cube shows through here */
-    #spacer { flex: 1; }
+    /* Spacer — cube is fully visible and interactive here, no pointer capture */
+    #spacer { grid-row: 2; pointer-events: none; }
 
-    /* Controls panel at bottom */
+    /* Controls panel — only occupies its own row, never overlaps cube */
     #controls {
       pointer-events: auto;
+      grid-row: 3;
       padding: 10px 16px 24px;
       display: flex; flex-direction: column; gap: 10px;
       background: linear-gradient(to top, rgba(9,9,11,0.94) 55%, transparent 100%);
