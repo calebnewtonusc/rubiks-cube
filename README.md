@@ -64,12 +64,4 @@ The cube logic is at `public/cube-app.html`. Everything else is scaffolding.
 
 ---
 
-## About
-
-Caleb Newton. Sophomore at USC Iovine and Young Academy. Building [Amber](https://github.com/amber-organization/amber) (health OS), consulting at four companies, and occasionally making Rubik's cube apps for my sister on a Tuesday.
-
-[calebnewton.me](https://calebnewton.me) | [GitHub](https://github.com/calebnewtonusc)
-
----
-
 All glory to God! ✝️❤️
