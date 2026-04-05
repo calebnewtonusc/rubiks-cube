@@ -9,7 +9,7 @@
 
     html, body {
       width: 100%; height: 100%;
-      background: #09090b;
+      background: #000;
       overflow: hidden;
       -webkit-font-smoothing: antialiased;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
@@ -218,9 +218,12 @@
       experimentalDragInput: "auto",
       controlPanel: "none",
       hintFacelets: "none",
-      background: "none",
     });
-    player.style.cssText = "position:fixed;top:0;left:0;width:100%;height:100%;z-index:0;cursor:grab;";
+    // Do NOT set background:"none" — TwistyPlayer uses color-picking (render-to-texture)
+    // for hit detection. Transparent background makes every non-sticker pixel read as
+    // "background", so all drags orbit. Let the player render its own background and
+    // hide the seam by matching the body background color.
+    player.style.cssText = "position:fixed;top:0;left:0;width:100%;height:100%;z-index:0;";
     document.body.insertBefore(player, document.body.firstChild);
 
     // Build move buttons
