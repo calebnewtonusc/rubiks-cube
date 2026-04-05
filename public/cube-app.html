@@ -222,8 +222,11 @@
     let moveCount = 0;
     let hintTimer = null;
 
-    // Player element was declared in HTML and is now upgraded by the import above
+    // Player element was declared in HTML and is now upgraded by the import above.
+    // Set experimentalDragInput programmatically — the HTML attribute alone is not
+    // reliably observed by the custom element before upgrade completes.
     const player = document.querySelector("twisty-player");
+    player.experimentalDragInput = "auto";
 
     // Build move buttons
     const moveGrid = document.getElementById("move-btns");
